@@ -1,0 +1,1401 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1.0"/>
+<title>Live Sales Dashboard</title>
+<meta name="description" content="Dashboard เปรียบเทียบยอดขายตามหมวดรายได้ เชื่อมต่อกับ Google Sheet แบบ Live"/>
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script src="https://cdn.sheetjs.com/xlsx-latest/package/dist/xlsx.full.min.js"></script>
+<style>
+/* ====== DESIGN TOKENS — Apple Style ====== */
+:root {
+  --bg:#f2f2f7;--card:#ffffffcc;--card-solid:#ffffff;
+  --border:rgba(0,0,0,0.08);--shadow:0 2px 12px rgba(0,0,0,0.07);
+  --shadow-md:0 4px 24px rgba(0,0,0,0.10);
+  --radius:16px;--radius-sm:10px;--radius-xs:6px;
+  --text-primary:#1c1c1e;--text-secondary:#636366;--text-tertiary:#aeaeb2;
+  --accent:#007aff;--accent-bg:#e8f0ff;
+  --green:#34c759;--green-bg:#e8f8ed;
+  --red:#ff3b30;--red-bg:#fff0ee;
+  --gray:#8e8e93;--gray-bg:#f2f2f7;
+  --font:-apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif;
+  color-scheme: light dark;
+}
+/* ====== DARK MODE ====== */
+[data-theme="dark"] {
+  --bg:#1c1c1e;--card:rgba(44,44,46,0.85);--card-solid:#2c2c2e;
+  --border:rgba(255,255,255,0.1);--shadow:0 2px 12px rgba(0,0,0,0.3);
+  --shadow-md:0 4px 24px rgba(0,0,0,0.4);
+  --text-primary:#f5f5f7;--text-secondary:#98989d;--text-tertiary:#636366;
+  --accent:#0a84ff;--accent-bg:rgba(10,132,255,0.15);
+  --green:#30d158;--green-bg:rgba(48,209,88,0.15);
+  --red:#ff453a;--red-bg:rgba(255,69,58,0.15);
+  --gray:#8e8e93;--gray-bg:rgba(142,142,147,0.15);
+}
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+html{font-size:15px}
+body{font-family:var(--font);background:var(--bg);color:var(--text-primary);min-height:100vh;padding:0;transition:background 0.3s,color 0.3s}
+
+/* ====== LAYOUT ====== */
+.page-wrap{max-width:1280px;margin:0 auto;padding:24px 20px 60px}
+
+/* ====== HEADER ====== */
+.dashboard-header{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;margin-bottom:16px}
+.header-left h1{font-size:1.75rem;font-weight:700;letter-spacing:-0.5px}
+.header-left p{font-size:0.85rem;color:var(--text-secondary);margin-top:3px}
+.header-right{display:flex;flex-direction:column;align-items:flex-end;gap:4px}
+.status-badge{display:inline-flex;align-items:center;gap:7px;padding:6px 14px;border-radius:20px;font-size:0.78rem;font-weight:600;background:var(--green-bg);color:var(--green);white-space:nowrap}
+.status-badge.preview{background:#fff8e6;color:#c67d00}
+[data-theme="dark"] .status-badge.preview{background:rgba(230,160,0,0.15);color:#ffa500}
+.status-dot{width:7px;height:7px;border-radius:50%;background:var(--green);animation:pulse 2s infinite}
+.status-badge.preview .status-dot{background:#e59400;animation:none}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:0.35}}
+.last-updated{font-size:0.75rem;color:var(--text-tertiary);margin-top:4px}
+
+/* ====== THEME TOGGLE ====== */
+.theme-toggle{width:42px;height:24px;border-radius:12px;background:var(--border);border:none;cursor:pointer;position:relative;transition:background 0.25s;flex-shrink:0}
+.theme-toggle::after{content:'';position:absolute;top:2px;left:2px;width:20px;height:20px;border-radius:50%;background:#fff;box-shadow:0 1px 3px rgba(0,0,0,0.2);transition:transform 0.25s}
+[data-theme="dark"] .theme-toggle{background:var(--accent)}
+[data-theme="dark"] .theme-toggle::after{transform:translateX(18px)}
+.theme-row{display:flex;align-items:center;gap:8px}
+.theme-row span{font-size:0.85rem}
+
+/* ====== VIEW TOGGLE ====== */
+.view-toggle{display:flex;background:rgba(128,128,128,0.1);padding:4px;border-radius:var(--radius-sm);width:fit-content;margin-bottom:24px}
+.toggle-btn{padding:8px 16px;border:none;background:transparent;border-radius:6px;font-family:var(--font);font-size:0.85rem;font-weight:600;color:var(--text-secondary);cursor:pointer;transition:all 0.2s}
+.toggle-btn.active{background:var(--card-solid);color:var(--text-primary);box-shadow:var(--shadow)}
+
+/* ====== FILTER CARD ====== */
+.filter-card{background:var(--card);backdrop-filter:blur(12px);border:1px solid var(--border);border-radius:var(--radius);box-shadow:var(--shadow);padding:18px 22px;margin-bottom:24px;display:flex;flex-wrap:wrap;align-items:flex-end;gap:14px}
+.filter-group{display:flex;flex-direction:column;gap:5px;flex:1;min-width:160px}
+.filter-group label{font-size:0.73rem;font-weight:600;color:var(--text-secondary);text-transform:uppercase;letter-spacing:0.5px}
+select{padding:9px 12px;border:1.5px solid var(--border);border-radius:var(--radius-sm);background:var(--card-solid);font-family:var(--font);font-size:0.9rem;color:var(--text-primary);cursor:pointer;transition:border-color 0.15s;width:100%}
+select{padding-right:32px;-webkit-appearance:none;appearance:none;background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath d='M1 1l5 5 5-5' stroke='%23636366' stroke-width='1.5' fill='none' stroke-linecap='round'/%3E%3C/svg%3E");background-repeat:no-repeat;background-position:right 10px center}
+select:focus{outline:none;border-color:var(--accent)}
+
+.btn-group{display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap}
+.btn{padding:9px 18px;border-radius:var(--radius-sm);font-family:var(--font);font-size:0.85rem;font-weight:600;cursor:pointer;border:none;transition:all 0.15s;white-space:nowrap;display:inline-flex;align-items:center;gap:6px}
+.btn-outline{background:transparent;border:1.5px solid var(--border);color:var(--text-secondary)}
+.btn-outline:hover{border-color:var(--accent);color:var(--accent);background:var(--accent-bg)}
+.btn-primary{background:var(--accent);color:#fff}
+.btn-primary:hover{background:#005ecb}
+[data-theme="dark"] .btn-primary:hover{background:#0070e0}
+.btn-primary:active{transform:scale(0.97)}
+.btn-primary.loading{opacity:0.6;pointer-events:none}
+.btn-export{background:var(--green);color:#fff}
+.btn-export:hover{background:#2ab749}
+.btn-import{background:#ff9500;color:#fff;position:relative;overflow:hidden}
+.btn-import:hover{background:#e58600}
+.btn-import input[type="file"]{position:absolute;top:0;left:0;opacity:0;width:100%;height:100%;cursor:pointer}
+.btn-import-week{background:#5856d6;color:#fff;position:relative;overflow:hidden}
+.btn-import-week:hover{background:#4745b7}
+.btn-import-week input[type="file"]{position:absolute;top:0;left:0;opacity:0;width:100%;height:100%;cursor:pointer}
+.btn-danger{background:var(--red);color:#fff}
+.btn-danger:hover{background:#e0352b}
+[data-theme="dark"] .btn-danger:hover{background:#ff5c50}
+
+/* ====== KPI CARDS ====== */
+.kpi-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:16px;margin-bottom:28px}
+.kpi-card{background:var(--card);backdrop-filter:blur(12px);border:1px solid var(--border);border-radius:var(--radius);box-shadow:var(--shadow);padding:20px 22px;transition:transform 0.15s,box-shadow 0.15s}
+.kpi-card:hover{transform:translateY(-2px);box-shadow:var(--shadow-md)}
+.kpi-label{font-size:0.73rem;font-weight:600;color:var(--text-secondary);text-transform:uppercase;letter-spacing:0.4px;margin-bottom:8px}
+.kpi-value{font-size:1.55rem;font-weight:700;letter-spacing:-0.5px;line-height:1.1;word-break:break-all}
+.kpi-sub{font-size:0.75rem;color:var(--text-tertiary);margin-top:5px}
+
+/* ====== SECTION HEADER ====== */
+.section-header{display:flex;align-items:center;gap:10px;margin-bottom:16px;flex-wrap:wrap}
+.section-header h2{font-size:1.05rem;font-weight:700}
+.section-header .badge{font-size:0.72rem;font-weight:600;background:var(--accent-bg);color:var(--accent);padding:3px 10px;border-radius:20px}
+
+/* ====== CATEGORY CHART CONTAINER ====== */
+.bars-card{background:var(--card);backdrop-filter:blur(12px);border:1px solid var(--border);border-radius:var(--radius);box-shadow:var(--shadow);padding:22px 26px;margin-bottom:24px; height: 500px;}
+.bars-card canvas { width: 100% !important; height: 100% !important; }
+
+/* ====== TABLE ====== */
+.table-card{background:var(--card);backdrop-filter:blur(12px);border:1px solid var(--border);border-radius:var(--radius);box-shadow:var(--shadow);padding:22px 0 0;margin-bottom:24px;overflow:hidden}
+.table-card-inner{padding:0 26px 22px}
+.tbl-wrap{overflow-x:auto}
+table{width:100%;border-collapse:collapse;font-size:0.83rem}
+thead th{text-align:right;padding:10px 14px;font-size:0.72rem;font-weight:700;color:var(--text-secondary);text-transform:uppercase;letter-spacing:0.4px;border-bottom:1px solid var(--border);white-space:nowrap;background:rgba(128,128,128,0.03)}
+thead th:first-child{text-align:left}
+tbody tr{border-bottom:1px solid rgba(128,128,128,0.08);transition:background 0.1s}
+tbody tr:last-child{border-bottom:none}
+tbody tr:hover{background:rgba(0,122,255,0.03)}
+tbody td{padding:11px 14px;text-align:right;white-space:nowrap}
+tbody td:first-child{text-align:left;font-weight:600}
+tfoot td{padding:11px 14px;text-align:right;font-weight:700;border-top:2px solid var(--border);background:rgba(128,128,128,0.04);white-space:nowrap}
+tfoot td:first-child{text-align:left}
+.chip-pos{color:var(--green);font-weight:700}.chip-neg{color:var(--red);font-weight:700}.chip-neu{color:var(--gray);font-weight:600}
+/* Highlight rows */
+tr.row-best td:first-child{border-left:3px solid var(--green)}
+tr.row-worst td:first-child{border-left:3px solid var(--red)}
+
+/* ====== MATRIX ====== */
+.matrix-card{background:var(--card);backdrop-filter:blur(12px);border:1px solid var(--border);border-radius:var(--radius);box-shadow:var(--shadow);padding:22px 0 0;margin-bottom:24px;overflow:hidden}
+.matrix-tbl-wrap{overflow-x:auto;padding:0 0 22px}
+
+/* ====== LOADING ====== */
+#loadingOverlay{position:fixed;inset:0;background:rgba(242,242,247,0.85);display:flex;flex-direction:column;align-items:center;justify-content:center;z-index:1000;gap:14px}
+[data-theme="dark"] #loadingOverlay{background:rgba(28,28,30,0.85)}
+#loadingOverlay.hidden{display:none}
+.spinner{width:36px;height:36px;border:3px solid rgba(0,122,255,0.2);border-top-color:var(--accent);border-radius:50%;animation:spin 0.7s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+.loading-text{font-size:0.9rem;color:var(--text-secondary);font-weight:500}
+
+/* ====== EMPTY STATE ====== */
+.empty-state{text-align:center;padding:48px 24px;color:var(--text-tertiary)}
+.empty-icon{font-size:2.5rem;margin-bottom:10px}
+.empty-state p{font-size:0.9rem}
+
+/* ====== PULL TO REFRESH ====== */
+#pullIndicator{position:fixed;top:0;left:50%;transform:translateX(-50%);z-index:999;opacity:0;transition:opacity 0.2s,transform 0.2s;pointer-events:none;padding:12px 20px;background:var(--accent);color:#fff;border-radius:0 0 var(--radius-sm) var(--radius-sm);font-size:0.82rem;font-weight:600;box-shadow:var(--shadow)}
+#pullIndicator.visible{opacity:1;transform:translateX(-50%) translateY(0)}
+
+/* ====== RESPONSIVE ====== */
+@media(max-width:700px){
+  .page-wrap{padding:16px 12px 40px}
+  .dashboard-header{flex-direction:column;align-items:flex-start}
+  .header-right{align-items:flex-start}
+  .kpi-value{font-size:1.25rem}
+  .bars-card{padding:16px 14px; height: 400px;}
+  .table-card-inner{padding:0 12px 16px}
+  .filter-group{min-width:140px}
+}
+</style>
+</head>
+<body>
+
+<div id="loadingOverlay"><div class="spinner"></div><div class="loading-text">กำลังโหลดข้อมูล...</div></div>
+<div id="pullIndicator">↻ ปล่อยเพื่อรีเฟรช</div>
+
+<div class="page-wrap">
+
+  <!-- HEADER -->
+  <div class="dashboard-header">
+    <div class="header-left">
+      <h1>📊 Live Dashboard</h1>
+      <p>ประมวลผลข้อมูลในเครื่อง 100% • ไม่มีการอัปโหลดขึ้นเซิร์ฟเวอร์</p>
+    </div>
+    <div class="header-right">
+      <div style="display:flex;align-items:center;gap:12px">
+        <div id="statusBadge" class="status-badge"><div class="status-dot"></div><span id="statusText">กำลังโหลด…</span></div>
+        <div class="theme-row"><span>☀️</span><button class="theme-toggle" id="themeToggle" aria-label="สลับ Dark Mode"></button><span>🌙</span></div>
+      </div>
+      <div id="lastUpdated" class="last-updated"></div>
+    </div>
+  </div>
+
+  <!-- VIEW TOGGLE -->
+  <div class="view-toggle" id="viewToggle">
+    <button class="toggle-btn active" data-view="sales">💰 ยอดขาย (Sales)</button>
+    <button class="toggle-btn" data-view="gsx">🔧 งานซ่อม (GSX)</button>
+  </div>
+
+  <!-- FILTER -->
+  <div class="filter-card">
+    <div class="filter-group">
+      <label for="selAM">เลือก AM</label>
+      <select id="selAM"><option value="">— AM ทั้งหมด —</option></select>
+    </div>
+    <div class="filter-group">
+      <label for="selBranch">เลือก Branch</label>
+      <select id="selBranch"><option value="">— Branch ทั้งหมด —</option></select>
+    </div>
+    <div class="btn-group">
+      <button class="btn btn-outline" id="btnReset">↺ Reset</button>
+      <button class="btn btn-primary" id="btnRefresh">⟳ Refresh</button>
+      <button class="btn btn-export" id="btnExport">📥 Export CSV</button>
+      <div class="btn btn-import">
+        📤 Import Excel
+        <input type="file" id="fileImport" accept=".xlsx, .xls, .csv"/>
+      </div>
+      <div class="btn btn-import-week">
+        📅 Import ยอด Week
+        <input type="file" id="fileImportWeek" multiple accept=".xlsx, .xls, .csv"/>
+      </div>
+      <button class="btn btn-danger" id="btnClearWeek">🗑️ ล้างข้อมูล Week</button>
+    </div>
+  </div>
+
+  <!-- KPI -->
+  <div class="kpi-grid" id="kpiGrid"></div>
+
+  <!-- CATEGORY CHART -->
+  <div class="section-header">
+    <h2>เปรียบเทียบตามหมวดหมู่</h2>
+    <span class="badge">Category Compare</span>
+  </div>
+  <div class="bars-card" id="barsCard">
+    <canvas id="categoryChart"></canvas>
+  </div>
+
+  <!-- CATEGORY TABLE -->
+  <div class="section-header">
+    <h2>ตารางเปรียบเทียบรายหมวด</h2>
+  </div>
+  <div class="table-card"><div class="table-card-inner"><div class="tbl-wrap" id="categoryTableWrap"></div></div></div>
+
+  <!-- MATRIX -->
+  <div class="section-header">
+    <h2>Type × Category Matrix</h2>
+    <span class="badge" id="matrixBadge">RR</span>
+  </div>
+  <div class="matrix-card"><div class="matrix-tbl-wrap" id="matrixWrap"></div></div>
+
+</div>
+
+<script>
+// ====== CONSTANTS ======
+let PERIOD_JUNE="", PERIOD_ACTUAL="", PERIOD_RR="", PERIOD_COMP="", COMP_LABEL="";
+const COL_AM="AM",COL_BRANCH="Branch (ID)",COL_PERIOD="ช่วงเดือน",COL_TYPE="Type";
+
+const CONFIG = {
+  sales: {
+    keys: ["AC+","ACC","CPU","Exchange","Film","iPhone Battery","iPhone Display","Privilege Member","Service Bill"],
+    totalCol: "ยอดขาย",
+    unit: "บาท"
+  },
+  gsx: {
+    keys: ["ACC", "Airpods", "CPU", "iPad", "iPhone Battery", "iPhone Display", "iPhone Other", "Watch"],
+    totalCol: "Grand Total",
+    unit: "รายการ"
+  }
+};
+
+// ====== STATE ======
+let allData = { sales: [], gsx: [] };
+let compWeekData = { sales: [], gsx: [], periodName: "" };
+let allBranches=[],isLive=false,autoTimer=null;
+let catChart=null;
+let currentView="sales";
+
+// ====== FORMAT HELPERS ======
+function fmt(v){if(!isValidNum(v))return"-";return Number(v).toLocaleString("th-TH",{maximumFractionDigits:0})}
+function fmtPct(v){if(v===null||v===undefined||isNaN(v))return"-";return(v>0?"+":"")+v.toFixed(2)+"%"}
+function isValidNum(v){if(v===null||v===undefined)return false;if(typeof v==="string"){const t=v.trim();if(t===""||t==="-"||t.startsWith("#"))return false;return!isNaN(parseFloat(t.replace(/,/g,"")))}if(typeof v==="number")return!isNaN(v)&&isFinite(v);return false}
+function toNum(v){if(!isValidNum(v))return null;if(typeof v==="number")return v;return parseFloat(String(v).replace(/,/g,""))}
+function pctClass(v){if(v===null||v===undefined||isNaN(v))return"neu";return v>0?"pos":v<0?"neg":"neu"}
+
+// ====== NORMALIZE ======
+function normalizeRows(rows){return rows.map(r=>{const o={};Object.keys(r).forEach(k=>{let v=r[k];if(typeof v==="string"){const t=v.trim();v=t.startsWith("#")?"#ERR":t}o[k.trim()]=v});const am=o[COL_AM];if(!am||(typeof am==="string"&&am.startsWith("#"))||am==="")o[COL_AM]="ยังไม่ระบุ AM";return o})}
+
+// ====== FILTER ======
+function filterRows(rows){const am=document.getElementById("selAM").value;const br=document.getElementById("selBranch").value;return rows.filter(r=>{if(am&&r[COL_AM]!==am)return false;if(br){const rb=String(r[COL_BRANCH]||r["ID"]||"").trim();if(rb!==br)return false}return true})}
+// Week-comparison data is only meaningful for one branch at a time; hide it in the all-branch overview.
+function branchSelected(){return !!document.getElementById("selBranch").value}
+function getCompRows(){return branchSelected() ? filterRows(allData[currentView] || []) : []}
+
+// ====== AGGREGATE ======
+function sumCol(rows,period,colKey){let t=0,h=false;rows.forEach(r=>{if(String(r[COL_PERIOD]||"").trim()!==period)return;const v=toNum(r[colKey]);if(v!==null){t+=v;h=true}});return h?t:null}
+function calcPct(newV,baseV){if(baseV===null||baseV===0)return null;const n=(newV===null?0:newV);return((n-baseV)/baseV)*100}
+
+// ====== POPULATE FILTERS ======
+function populateFilters(){
+  const rows = allData[currentView] || [];
+  const selAM=document.getElementById("selAM");
+  const prevAM=selAM.value;
+  const ams=new Set();
+  rows.forEach(r=>ams.add(r[COL_AM]||"ยังไม่ระบุ AM"));
+  const arr=Array.from(ams).sort();
+  selAM.innerHTML='<option value="">— AM ทั้งหมด —</option>'+arr.map(a=>`<option value="${a}">${a}</option>`).join("");
+  if(arr.includes(prevAM)) selAM.value=prevAM;
+  rebuildBranches();
+}
+
+function rebuildBranches(){
+  const rows = allData[currentView] || [];
+  const am = document.getElementById("selAM").value;
+  const sel=document.getElementById("selBranch");
+  const prev=sel.value;
+  const filtered=am?rows.filter(r=>r[COL_AM]===am):rows;
+  const bs=new Set();
+  filtered.forEach(r=>{const b=String(r[COL_BRANCH]||r["ID"]||"").trim();if(b)bs.add(b)});
+  allBranches=Array.from(bs).sort((a,b)=>a.localeCompare(b,undefined,{numeric:true}));
+  sel.innerHTML='<option value="">— Branch ทั้งหมด —</option>'+allBranches.map(b=>`<option value="${b}">${b}</option>`).join("");
+  if(allBranches.includes(prev)) sel.value=prev;
+}
+
+// ====== RENDER KPIs ======
+function renderKpis(rows){
+  const conf=CONFIG[currentView];
+  const june=sumCol(rows,PERIOD_JUNE,conf.totalCol),actual=sumCol(rows,PERIOD_ACTUAL,conf.totalCol),rr=sumCol(rows,PERIOD_RR,conf.totalCol);
+  const pct=calcPct(rr,june),pc=pctClass(pct);
+
+  let compRows = getCompRows();
+  let compVal = sumCol(compRows, PERIOD_COMP, conf.totalCol);
+
+  const lblPrefix=currentView==="sales"?"ยอดขาย":"ยอด";
+  const monthJune = PERIOD_JUNE ? PERIOD_JUNE.split("'")[0] : "";
+  const monthActual = PERIOD_ACTUAL ? PERIOD_ACTUAL.split("'")[0] : "";
+  const actualDays = PERIOD_ACTUAL && PERIOD_ACTUAL.includes("_") ? PERIOD_ACTUAL.split("_")[1] : "";
+
+  const cards=[
+    {label:lblPrefix+" " + PERIOD_JUNE + " (เต็ม)",value:fmt(june),sub:conf.unit,color:"var(--text-primary)"}
+  ];
+
+  if(compVal !== null) {
+    cards.push({
+      label:lblPrefix+" " + (COMP_LABEL||"เทียบ") + " (เทียบ)",
+      value:fmt(compVal),
+      sub:conf.unit,
+      color:"var(--text-primary)"
+    });
+  }
+
+  const actualDisplay = PERIOD_ACTUAL ? PERIOD_ACTUAL.replace("_", " (") + ")" : "";
+  cards.push({label:lblPrefix+" " + actualDisplay,value:fmt(actual),sub:conf.unit+" (" + actualDays + " " + monthActual + ".)",color:"var(--text-primary)"});
+  cards.push({label:"คาดการณ์สิ้นเดือน",value:fmt(rr),sub:PERIOD_RR + " " + conf.unit,color:"var(--text-primary)"});
+
+  if(compVal !== null) {
+    const compPct = calcPct(actual, compVal);
+    const compPc = pctClass(compPct);
+    cards.push({
+      label:"% เติบโตเทียบสัปดาห์",
+      value:compPct!==null?fmtPct(compPct):"-",
+      sub:`(${actualDays} ${monthActual}. เทียบ ${COMP_LABEL})`,
+      color:compPc==="pos"?"var(--green)":compPc==="neg"?"var(--red)":"var(--gray)"
+    });
+  }
+
+  cards.push({label:"% เปลี่ยนแปลง RR vs " + monthJune,value:pct!==null?fmtPct(pct):"-",sub:"(" + PERIOD_RR + " เทียบ " + PERIOD_JUNE + ")",color:pc==="pos"?"var(--green)":pc==="neg"?"var(--red)":"var(--gray)"});
+
+  document.getElementById("kpiGrid").innerHTML=cards.map(c=>`<div class="kpi-card"><div class="kpi-label">${c.label}</div><div class="kpi-value" style="color:${c.color}">${c.value}</div><div class="kpi-sub">${c.sub}</div></div>`).join("");
+}
+
+// ====== FIND BEST/WORST ======
+function findBestWorst(rows){
+  const keys=CONFIG[currentView].keys;
+  let best=null,worst=null,bestPct=-Infinity,worstPct=Infinity;
+  keys.forEach(cat=>{
+    const june=sumCol(rows,PERIOD_JUNE,cat),rr=sumCol(rows,PERIOD_RR,cat);
+    const pct=calcPct(rr,june);
+    if(pct!==null){if(pct>bestPct){bestPct=pct;best=cat}if(pct<worstPct){worstPct=pct;worst=cat}}
+  });
+  return{best,worst,bestPct,worstPct};
+}
+
+// ====== RENDER CATEGORY CHART (Chart.js) ======
+function renderCategoryChart(rows){
+  const conf=CONFIG[currentView];
+  const dataJune=[],dataActual=[],dataComp=[],dataRR=[];
+  
+  let compRows = getCompRows();
+
+  conf.keys.forEach(cat=>{
+    dataJune.push(sumCol(rows,PERIOD_JUNE,cat)||0);
+    dataActual.push(sumCol(rows,PERIOD_ACTUAL,cat)||0);
+    dataRR.push(sumCol(rows,PERIOD_RR,cat)||0);
+    dataComp.push(sumCol(compRows,PERIOD_COMP,cat)||0);
+  });
+  
+  const monthJune = PERIOD_JUNE ? PERIOD_JUNE.split("'")[0] : "";
+  const monthActual = PERIOD_ACTUAL ? PERIOD_ACTUAL.split("'")[0] : "";
+  const actualDays = PERIOD_ACTUAL && PERIOD_ACTUAL.includes("_") ? PERIOD_ACTUAL.split("_")[1] : "";
+
+  const isDark=document.documentElement.getAttribute("data-theme")==="dark";
+  const textColor=isDark?"#98989d":"#636366";
+  const gridColor=isDark?"rgba(255,255,255,0.1)":"rgba(0,0,0,0.05)";
+  
+  const bgJune=isDark?"#636366":"#c7c7cc";
+  const bgComp=isDark?"#ff9f0a":"#ff9500"; 
+  const bgActual=isDark?"#30d158":"#34c759";
+  const bgRR=isDark?"#0a84ff":"#007aff";
+
+  const datasets = [
+    {label: PERIOD_JUNE + " (เต็ม)",data:dataJune,backgroundColor:bgJune,borderRadius:4,barPercentage:0.8,categoryPercentage:0.8}
+  ];
+
+  if (branchSelected()) {
+    datasets.push({
+      label: (COMP_LABEL||"เทียบ") + " (สัปดาห์เทียบ)",
+      data: dataComp,
+      backgroundColor: bgComp,
+      borderRadius: 4,
+      barPercentage: 0.8,
+      categoryPercentage: 0.8
+    });
+  }
+
+  datasets.push({label: actualDays + " " + monthActual + ".'26",data:dataActual,backgroundColor:bgActual,borderRadius:4,barPercentage:0.8,categoryPercentage:0.8});
+  datasets.push({label: PERIOD_RR,data:dataRR,backgroundColor:bgRR,borderRadius:4,barPercentage:0.8,categoryPercentage:0.8});
+
+  const ctx=document.getElementById("categoryChart").getContext("2d");
+  if(catChart) catChart.destroy();
+
+  Chart.defaults.font.family = '-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif';
+
+  catChart=new Chart(ctx,{
+    type:'bar',
+    data:{
+      labels:conf.keys,
+      datasets:datasets
+    },
+    options:{
+      responsive:true,
+      maintainAspectRatio:false,
+      indexAxis:'y',
+      interaction: {
+        mode: 'index',
+        intersect: false,
+      },
+      plugins:{
+        legend:{
+          position:'top',
+          labels:{color:textColor,usePointStyle:true,boxWidth:8,padding:20}
+        },
+        tooltip:{
+          backgroundColor:isDark?"rgba(28,28,30,0.95)":"rgba(255,255,255,0.95)",
+          titleColor:isDark?"#fff":"#000",
+          bodyColor:isDark?"#ccc":"#333",
+          borderColor:isDark?"rgba(255,255,255,0.1)":"rgba(0,0,0,0.1)",
+          borderWidth:1,
+          padding:12,
+          boxPadding:6,
+          callbacks:{
+            label:function(c){return c.dataset.label+': '+fmt(c.raw)+' '+conf.unit}
+          }
+        }
+      },
+      scales:{
+        x:{
+          grid:{color:gridColor},
+          ticks:{color:textColor,callback:function(value){return value>=1000000?(value/1000000).toFixed(1)+'M':value>=1000?(value/1000).toFixed(0)+'K':value}}
+        },
+        y:{
+          grid:{display:false},
+          ticks:{color:textColor,font:{weight:'500'}}
+        }
+      }
+    }
+  });
+}
+
+// ====== RENDER CATEGORY TABLE ======
+function renderCategoryTable(rows){
+  const conf=CONFIG[currentView];
+  const wrap=document.getElementById("categoryTableWrap");
+
+  // Force comparison period
+  let compRows = getCompRows();
+  const monthJune = PERIOD_JUNE ? PERIOD_JUNE.split("'")[0] : "";
+  const monthActual = PERIOD_ACTUAL ? PERIOD_ACTUAL.split("'")[0] : "";
+  const actualDays = PERIOD_ACTUAL && PERIOD_ACTUAL.includes("_") ? PERIOD_ACTUAL.split("_")[1] : "";
+
+  const rowData=conf.keys.map(cat=>{
+    const june=sumCol(rows,PERIOD_JUNE,cat);
+    const actual=sumCol(rows,PERIOD_ACTUAL,cat);
+    const rr=sumCol(rows,PERIOD_RR,cat);
+    const diff=(rr!==null||june!==null)?(rr||0)-(june||0):null;
+
+    let compVal = sumCol(compRows, PERIOD_COMP, cat);
+    let compDiff = (actual!==null||compVal!==null)?(actual||0)-(compVal||0):null;
+    let compPct = calcPct(actual, compVal);
+
+    return{cat,june,actual,rr,diff,pct:calcPct(rr,june),compVal,compDiff,compPct}
+  });
+
+  const hl=findBestWorst(rows);
+  function sN(arr,k){const vs=arr.map(d=>d[k]).filter(v=>v!==null);return vs.length?vs.reduce((a,b)=>a+b,0):null}
+  const tJ=sN(rowData,"june"),tA=sN(rowData,"actual"),tR=sN(rowData,"rr"),tD=(tR!==null||tJ!==null)?(tR||0)-(tJ||0):null,tP=calcPct(tR,tJ);
+
+  let tCompVal = sN(rowData, "compVal");
+  let tCompDiff = (tA!==null||tCompVal!==null)?(tA||0)-(tCompVal||0):null;
+  let tCompPct = calcPct(tA, tCompVal);
+
+  function pH(p){const c=pctClass(p);return p===null?'<span class="chip-neu">-</span>':`<span class="chip-${c}">${fmtPct(p)}</span>`}
+  function dH(d){const c=pctClass(d);return d===null?'<span class="chip-neu">-</span>':`<span class="chip-${c}">${(d>=0?"+":"")+fmt(d)}</span>`}
+
+  let labelJune = PERIOD_JUNE + " (เต็ม)";
+  let labelRR = PERIOD_RR;
+  let dayRange = PERIOD_ACTUAL.includes("_") ? PERIOD_ACTUAL.split("_")[1] : "";
+  let labelCompare = (COMP_LABEL||"เทียบ") + " (เทียบ)";
+  let labelActual = (PERIOD_ACTUAL.includes("_") ? PERIOD_ACTUAL.split("_").join(" (") + ")" : PERIOD_ACTUAL) + " (สัปดาห์นี้)";
+
+  wrap.innerHTML=`<table><thead><tr>
+    <th>Category</th>
+    <th>${labelJune}</th>
+    <th>${labelRR}</th>
+    <th>${labelCompare}</th>
+    <th>${labelActual}</th>
+    <th>ส่วนต่างสัปดาห์</th>
+    <th>% โตสัปดาห์</th>
+    <th>ส่วนต่าง (RR vs มิ.ย.)</th>
+    <th>% เปลี่ยนแปลง</th>
+  </tr></thead>
+  <tbody>${rowData.map(d=>{
+    let cls="";if(d.cat===hl.best)cls=" row-best";if(d.cat===hl.worst&&hl.worstPct<0)cls=" row-worst";
+    return`<tr class="${cls}">
+      <td>${d.cat}${d.cat===hl.best?' 🏆':''}${(d.cat===hl.worst&&hl.worstPct<0)?' ⚠':''}</td>
+      <td>${fmt(d.june)}</td>
+      <td>${fmt(d.rr)}</td>
+      <td>${fmt(d.compVal)}</td>
+      <td>${fmt(d.actual)}</td>
+      <td>${dH(d.compDiff)}</td>
+      <td>${pH(d.compPct)}</td>
+      <td>${dH(d.diff)}</td>
+      <td>${pH(d.pct)}</td>
+    </tr>`}).join("")}</tbody>
+  <tfoot><tr>
+    <td>รวมทั้งหมด</td>
+    <td>${fmt(tJ)}</td>
+    <td>${fmt(tR)}</td>
+    <td>${fmt(tCompVal)}</td>
+    <td>${fmt(tA)}</td>
+    <td>${dH(tCompDiff)}</td>
+    <td>${pH(tCompPct)}</td>
+    <td>${dH(tD)}</td>
+    <td>${pH(tP)}</td>
+  </tr></tfoot></table>`;
+}
+
+
+// ====== RENDER MATRIX ======
+function renderMatrix(rows){
+  const conf=CONFIG[currentView];
+  const wrap=document.getElementById("matrixWrap");
+  const monthJune = PERIOD_JUNE ? PERIOD_JUNE.split("'")[0] : "มิ.ย.";
+  const badge=document.getElementById("matrixBadge");
+  if(badge) badge.textContent = PERIOD_RR || "RR";
+  const types=new Set();rows.forEach(r=>{if(String(r[COL_PERIOD]||"").trim()===PERIOD_RR){const t=String(r[COL_TYPE]||"").trim();if(t)types.add(t)}});
+  const typeArr=Array.from(types).sort();
+  if(!typeArr.length){wrap.innerHTML='<div class="empty-state" style="padding:32px"><div class="empty-icon">📋</div><p>ไม่มีข้อมูล Type</p></div>';return}
+  function sD(rs,col){let t=0,h=false;rs.forEach(r=>{const v=toNum(r[col]);if(v!==null){t+=v;h=true}});return h?t:null}
+  const typeData=typeArr.map(type=>{
+    const tr=rows.filter(r=>String(r[COL_PERIOD]||"").trim()===PERIOD_RR&&String(r[COL_TYPE]||"").trim()===type);
+    const jr=rows.filter(r=>String(r[COL_PERIOD]||"").trim()===PERIOD_JUNE&&String(r[COL_TYPE]||"").trim()===type);
+    const rrT=sD(tr,conf.totalCol),jT=sD(jr,conf.totalCol);const cats={};conf.keys.forEach(c=>cats[c]=sD(tr,c));
+    return{type,rrTotal:rrT,pct:calcPct(rrT,jT),cats}});
+  function pH(p){const c=pctClass(p);return p===null?'<span class="chip-neu">-</span>':`<span class="chip-${c}">${fmtPct(p)}</span>`}
+  const thS='style="padding:10px 14px;font-size:0.72rem;font-weight:700;color:var(--text-secondary);text-transform:uppercase;letter-spacing:0.4px;border-bottom:1px solid var(--border);white-space:nowrap;background:rgba(128,128,128,0.03);"';
+  wrap.innerHTML=`<table style="width:100%;border-collapse:collapse;font-size:0.8rem;min-width:900px"><thead><tr><th ${thS} style="text-align:left">Type</th><th ${thS} style="text-align:right">${PERIOD_RR||"RR"} รวม</th><th ${thS} style="text-align:right">% vs ${monthJune}</th>${conf.keys.map(c=>`<th ${thS} style="text-align:right">${c}</th>`).join("")}</tr></thead><tbody>${typeData.map(d=>`<tr style="border-bottom:1px solid rgba(128,128,128,0.08)"><td style="padding:10px 14px;font-weight:600;white-space:nowrap">${d.type}</td><td style="padding:10px 14px;text-align:right;white-space:nowrap">${fmt(d.rrTotal)}</td><td style="padding:10px 14px;text-align:right;white-space:nowrap">${pH(d.pct)}</td>${conf.keys.map(c=>`<td style="padding:10px 14px;text-align:right;white-space:nowrap">${fmt(d.cats[c])}</td>`).join("")}</tr>`).join("")}</tbody></table>`;
+}
+
+// ====== EXPORT CSV ======
+function exportCSV(){
+  const conf=CONFIG[currentView];
+  const fRows=filterRows(allData[currentView]||[]);
+  const headers=["Category", PERIOD_JUNE, PERIOD_ACTUAL, PERIOD_RR, "ส่วนต่าง", "% เปลี่ยนแปลง"];
+  const csvRows=[headers.join(",")];
+  conf.keys.forEach(cat=>{
+    const june=sumCol(fRows,PERIOD_JUNE,cat),actual=sumCol(fRows,PERIOD_ACTUAL,cat),rr=sumCol(fRows,PERIOD_RR,cat);
+    const diff=(rr!==null||june!==null)?(rr||0)-(june||0):null,pct=calcPct(rr,june);
+    csvRows.push([cat,june!==null?june:"",actual!==null?actual:"",rr!==null?rr:"",diff!==null?diff:"",pct!==null?pct.toFixed(2)+"%":""].join(","));
+  });
+  const tJ=sumCol(fRows,PERIOD_JUNE,conf.totalCol),tA=sumCol(fRows,PERIOD_ACTUAL,conf.totalCol),tR=sumCol(fRows,PERIOD_RR,conf.totalCol);
+  const tD=(tR!==null||tJ!==null)?(tR||0)-(tJ||0):null,tP=calcPct(tR,tJ);
+  csvRows.push(["รวมทั้งหมด",tJ||"",tA||"",tR||"",tD||"",tP!==null?tP.toFixed(2)+"%":""].join(","));
+  const BOM="\uFEFF";
+  const blob=new Blob([BOM+csvRows.join("\n")],{type:"text/csv;charset=utf-8;"});
+  const url=URL.createObjectURL(blob);
+  const a=document.createElement("a");a.href=url;a.download=`${currentView}_dashboard_export.csv`;a.click();
+  URL.revokeObjectURL(url);
+}
+
+// ====== EXTRACT SHEET ======
+function extractSheet(workbook, sheetName, useKeys, targetPeriods) {
+  if(!workbook.SheetNames.includes(sheetName)) return null;
+  const ws=workbook.Sheets[sheetName];
+  const json_data=XLSX.utils.sheet_to_json(ws,{header:1,raw:false,defval:null});
+  if(json_data.length<3) return null;
+  const rows=[];
+  for(let i=2;i<json_data.length;i++){
+    const rowArr=json_data[i];
+    if(!rowArr||rowArr.length===0)continue;
+    const rowObj={};
+    for(let j=0;j<useKeys.length;j++){
+      let val=rowArr[j];
+      if(val===undefined)val=null;
+      rowObj[useKeys[j]]=val;
+    }
+    const period=String(rowObj['ช่วงเดือน']||'').trim();
+    if(!targetPeriods.includes(period))continue;
+    useKeys.forEach(k=>{
+      let v=rowObj[k];
+      if(typeof v==='string'){
+        const t=v.trim();
+        if(t===''||t==='-')rowObj[k]=t;
+        else if(t.startsWith('#'))rowObj[k]=t;
+        else{
+          const n=parseFloat(t.replace(/,/g,''));
+          if(!isNaN(n))rowObj[k]=n;
+        }
+      }
+    });
+    if(rowObj['ID']) {
+       rowObj['Branch (ID)'] = rowObj['ID'];
+       delete rowObj['ID'];
+    }
+    rows.push(rowObj);
+  }
+  return rows;
+}
+
+// ====== MAIN EXCEL IMPORT ======
+function handleExcelUpload(e){
+  const file=e.target.files[0];
+  e.target.value=""; // reset input immediately so the same file can be re-selected later
+  if(!file)return;
+  document.getElementById("loadingOverlay").classList.remove("hidden");
+  document.querySelector(".loading-text").textContent="กำลังประมวลผลไฟล์ Excel...";
+  const reader=new FileReader();
+  reader.onload=function(evt){
+    try{
+      const workbook=XLSX.read(new Uint8Array(evt.target.result),{type:'array'});
+      loadMasterWorkbook(workbook, "Imported จากไฟล์ Excel ("+file.name+")");
+    }catch(err){
+      alert("เกิดข้อผิดพลาดในการอ่านไฟล์: "+err.message);
+      document.getElementById("loadingOverlay").classList.add("hidden");
+    }
+  };
+  reader.readAsArrayBuffer(file);
+}
+
+// ====== LOAD MASTER FROM A PARSED WORKBOOK (shared by file-upload and online auto-load) ======
+function loadMasterWorkbook(workbook, statusLabel){
+  // Extract target periods dynamically from the "ช่วงเดือน" column
+  const wsPeriods = workbook.Sheets["ยอดขายแยกร้าน_Month"];
+  let targetPeriods = [];
+  if (wsPeriods) {
+     const rawData = XLSX.utils.sheet_to_json(wsPeriods, {header: 1});
+     const periodIdx = rawData[1] ? rawData[1].indexOf("ช่วงเดือน") : 5;
+     let uniqueArr = [];
+     for (let i=2; i<rawData.length; i++) {
+         let p = rawData[i][periodIdx];
+         if (p) { let s = String(p).trim(); if (!uniqueArr.includes(s)) uniqueArr.push(s); }
+     }
+     let pJune = "", pActual = "", pRR = "";
+     for (let i=0; i<uniqueArr.length; i++) {
+         let p = uniqueArr[i];
+         if (p.includes("_") && p.includes("'") && !p.toUpperCase().startsWith("YTD")) {
+             pActual = p;
+             if (i > 0) pJune = uniqueArr[i-1];
+             break;
+         }
+     }
+     if (pActual) {
+         let monthYear = pActual.split("_")[0];
+         let actualDays = pActual.includes("_") ? pActual.split("_")[1] : "";
+         PERIOD_COMP = pJune + "_" + actualDays;
+         COMP_LABEL = pJune + " (" + actualDays + ")";
+         pRR = uniqueArr.find(x => x === "RR " + monthYear);
+         if (!pRR) pRR = uniqueArr.find(x => x.startsWith("RR") && x.includes(monthYear));
+     }
+     targetPeriods = [pJune, pActual, pRR];
+     PERIOD_JUNE = pJune; PERIOD_ACTUAL = pActual; PERIOD_RR = pRR;
+  }
+
+  const salesKeys=['AM','Branch (ID)','Type','ช่วงปี','ช่วงเดือน','GSX','ยอดขาย','กำไร','AC+','ACC','CPU','Exchange','Film','iPhone Battery','iPhone Display','Privilege Member','Service Bill'];
+  const salesRows = extractSheet(workbook, "ยอดขายแยกร้าน_Month", salesKeys, targetPeriods) || [];
+  const gsxKeys=['AM','ID','Type','ช่วงปี','ช่วงเดือน','Grand Total','ACC','Airpods','CPU','iPad','iPhone Battery','iPhone Display','iPhone Other','Watch','no'];
+  const gsxRows = extractSheet(workbook, "ยอด GSX_Month", gsxKeys, targetPeriods) || [];
+
+  if(salesRows.length===0 && gsxRows.length===0) {
+     alert("ไม่พบข้อมูลที่ตรงกับเงื่อนไขในไฟล์นี้");
+     document.getElementById("loadingOverlay").classList.add("hidden");
+     return false;
+  }
+  document.querySelector(".loading-text").textContent="กำลังโหลดข้อมูล...";
+  setStatus(false, statusLabel);
+  onDataLoaded({sales: salesRows, gsx: gsxRows});
+  return true;
+}
+
+// ====== EXTRACT BRANCH (ID) FROM FILE NAME ======
+// Branch codes are 3-4 digits; day-range parts (1-31) are 1-2 digits, so they're ignored.
+// Prefer a number that is an actual branch in the loaded Master; else use the last 3+ digit run.
+// e.g. "606_ยอด1-5 มิ.ย.xlsx" -> "606" , "Daily_Sales_Aug_1-15_2305.xlsx" -> "2305"
+function extractBranchFromName(fileName){
+  const nums = String(fileName||"").match(/\d{3,}/g) || [];
+  if(!nums.length) return null;
+  const known = new Set();
+  (allData.sales||[]).forEach(r=>{ const b=String(r["Branch (ID)"]||"").trim(); if(b) known.add(b); });
+  (allData.gsx||[]).forEach(r=>{ const b=String(r["Branch (ID)"]||"").trim(); if(b) known.add(b); });
+  const hit = nums.find(n=>known.has(n));
+  return hit || nums[nums.length-1];
+}
+
+// ====== PARSE COMPARISON PERIOD FROM FILE NAME (Thai or English month + day range) ======
+// e.g. "Daily_Sales_Aug_1-15_2305.xlsx" -> {period:"ส.ค.'26_1-15", label:"ส.ค.'26 (1-15)"}
+//      "ยอด1-5 มิ.ย_2305.xlsx"        -> {period:"มิ.ย.'26_1-5",  label:"มิ.ย.'26 (1-5)"}
+function parseComparisonPeriod(fileName){
+  const name = String(fileName||"");
+  // day range like 1-5, 1-15, 1-20, 1-30 (not preceded/followed by another digit, so 4-digit branch codes are ignored)
+  const dm = name.match(/(?<!\d)(\d{1,2})\s*-\s*(\d{1,2})(?!\d)/);
+  const dayRange = dm ? (parseInt(dm[1],10) + "-" + parseInt(dm[2],10)) : "";
+  // Thai month: match the dotted core, output the full abbreviation (with trailing dot)
+  const THAI = [["ม.ค","ม.ค."],["ก.พ","ก.พ."],["มี.ค","มี.ค."],["เม.ย","เม.ย."],["พ.ค","พ.ค."],["มิ.ย","มิ.ย."],["ก.ค","ก.ค."],["ส.ค","ส.ค."],["ก.ย","ก.ย."],["ต.ค","ต.ค."],["พ.ย","พ.ย."],["ธ.ค","ธ.ค."]];
+  let month="";
+  for(const pair of THAI){ if(name.indexOf(pair[0])!==-1){ month=pair[1]; break; } }
+  if(!month){
+    const tokens = name.toLowerCase().replace(/[^a-z]+/g," ").split(" ").filter(Boolean);
+    const EN = [["jan","ม.ค."],["feb","ก.พ."],["mar","มี.ค."],["apr","เม.ย."],["may","พ.ค."],["jun","มิ.ย."],["jul","ก.ค."],["aug","ส.ค."],["sep","ก.ย."],["oct","ต.ค."],["nov","พ.ย."],["dec","ธ.ค."]];
+    for(const t of tokens){ let hit=false; for(const en of EN){ if(t.indexOf(en[0])===0){ month=en[1]; hit=true; break; } } if(hit) break; }
+  }
+  // year: inherit from the imported master (…'26); fall back to current year
+  const src = PERIOD_ACTUAL || PERIOD_RR || PERIOD_JUNE || "";
+  const ym = src.match(/'(\d{2})/);
+  const yy = ym ? ym[1] : String(new Date().getFullYear()).slice(-2);
+  if(!month) return { period:"", label:"" };
+  const period = month + "'" + yy + (dayRange ? "_" + dayRange : "");
+  const label  = month + "'" + yy + (dayRange ? " (" + dayRange + ")" : "");
+  return { period, label, month, dayRange, yy };
+}
+
+// ====== WEEK & DAILY EXCEL IMPORT ======
+function handleWeekImport(e) {
+  const files = Array.from(e.target.files || []);
+  e.target.value = ""; // reset input immediately so re-selecting the same file (or after cancel) still fires
+  if (files.length === 0) return;
+
+  // Create an overlay to show status
+  const overlay = document.createElement("div");
+  overlay.style.position = "fixed";
+  overlay.style.top = "0"; overlay.style.left = "0"; overlay.style.width = "100%"; overlay.style.height = "100%";
+  overlay.style.backgroundColor = "rgba(0,0,0,0.5)";
+  overlay.style.zIndex = "9999";
+  overlay.style.display = "flex";
+  overlay.style.justifyContent = "center";
+  overlay.style.alignItems = "center";
+  overlay.style.color = "white";
+  overlay.style.fontSize = "1.5rem";
+  overlay.innerHTML = "กำลังประมวลผลไฟล์... กรุณารอสักครู่";
+  document.body.appendChild(overlay);
+
+  const promises = [];
+  
+  for (let i = 0; i < files.length; i++) {
+     promises.push(new Promise((resolve, reject) => {
+        const file = files[i];
+        const fileName = file.name;
+        
+        // Comparison period comes from the file name (any month/date); fall back to master default
+        const parsedComp = parseComparisonPeriod(fileName);
+        let filePeriod = parsedComp.period || PERIOD_COMP;
+        let fileCompLabel = parsedComp.label || COMP_LABEL;
+
+        // Extract branch from filename (handles 3-4 digit codes, e.g. 606 or 2305)
+        let fileBranch = extractBranchFromName(fileName);
+
+        const reader = new FileReader();
+        reader.onload = function(evt) {
+           const data = evt.target.result;
+           const workbook = XLSX.read(data, {type: 'array'});
+           
+           let dailySalesRows = [];
+           let dailyGsxRows = [];
+
+           workbook.SheetNames.forEach(sheetName => {
+              const ws = workbook.Sheets[sheetName];
+              const temp = XLSX.utils.sheet_to_json(ws, {header:1, raw:false, defval:null});
+              if(temp.length < 2) return;
+              
+              let headerRowIdx = -1;
+              let fileType = "unknown";
+              for (let j=0; j<Math.min(10, temp.length); j++) {
+                const rowStr = temp[j] ? temp[j].join(" ") : "";
+                if (rowStr.includes("Branch (ID)") && rowStr.includes("ราคาขายนำมาคิดกำไร")) {
+                  headerRowIdx = j;
+                  fileType = "sales";
+                  break;
+                }
+                if (rowStr.includes("Repair Status") && (rowStr.includes("Branch") || rowStr.includes("Purchase Order"))) {
+                  headerRowIdx = j;
+                  fileType = "gsx";
+                  break;
+                }
+              }
+              
+              if (fileType === "sales" && headerRowIdx !== -1) {
+                  const headers = temp[headerRowIdx].map(h => String(h || "").trim());
+                  const branchIdx = headers.indexOf("Branch (ID)");
+                  const catIdx = headers.indexOf("Category (Name)");
+                  const subCatIdx = headers.indexOf("Sub Category");
+                  const priceIdx = headers.indexOf("ราคาขายนำมาคิดกำไร");
+                  const prodNameIdx = headers.indexOf("Product (Name)");
+                  
+                  if (priceIdx !== -1) {
+                    for(let j=headerRowIdx+1; j<temp.length; j++) {
+                      const row = temp[j];
+                      if(!row) continue;
+                      let valStr = String(row[priceIdx] || "0").replace(/,/g,"");
+                      let val = parseFloat(valStr) || 0;
+                      if (val === 0) continue; 
+                      
+                      let bVal = "";
+                      if (branchIdx !== -1) bVal = String(row[branchIdx] || "").trim();
+                      if (!bVal || bVal === "null" || bVal === "None") {
+                          bVal = fileBranch || "Unknown";
+                      }
+                      
+                      const cat = catIdx !== -1 ? String(row[catIdx]||"").toUpperCase().trim() : "";
+                      const subCat = subCatIdx !== -1 ? String(row[subCatIdx]||"").toUpperCase().trim() : "";
+                      const prodName = prodNameIdx !== -1 ? String(row[prodNameIdx]||"").toUpperCase().trim() : "";
+                      
+                      let mappedType = "ACC";
+                      if (cat === "SERVICE" && subCat === "ICARE") mappedType = "Service Bill";
+                      else if (cat === "APPLE SERVICE" && prodName.includes("SERVICE FEE")) mappedType = "Exchange"; // ค่าบริการซ่อม (Mac/iPhone) -> Exchange เสมอ ไม่ว่า Sub Category จะเป็นอะไร
+                      else if (cat === "APPLE SERVICE" && !subCat.includes("BATTERY") && !subCat.includes("CPU") && !subCat.includes("ICARE") && !subCat.includes("DISPLAY")) mappedType = "Exchange";
+                      else if (cat.includes("APPLE CARE") || subCat.includes("APPLE CARE")) mappedType = "AC+";
+                      else if (cat.includes("BATTERY") || subCat.includes("BATTERY") || prodName.includes("BATTERY")) mappedType = "iPhone Battery";
+                      else if (cat.includes("CPU") || subCat.includes("CPU")) mappedType = "CPU";
+                      else if (cat.includes("DISPLAY") || subCat.includes("DISPLAY")) mappedType = "iPhone Display";
+                      else if (cat.includes("FILM") || subCat.includes("FILM") || prodName.includes("FILM")) mappedType = "Film";
+                      
+                      dailySalesRows.push({
+                        branch: bVal,
+                        type: mappedType,
+                        total: val
+                      });
+                    }
+                  }
+              } else if (fileType === "gsx" && headerRowIdx !== -1) {
+                  const headers = temp[headerRowIdx].map(h => String(h || "").trim());
+                  const repairTypeIdx = headers.indexOf("Repair Type") !== -1 ? headers.indexOf("Repair Type") : headers.indexOf("Dispatch Type");
+                  const branchIdx = headers.includes("Branch") ? headers.indexOf("Branch") : headers.indexOf("Branch (ID)");
+                  const poIdx = headers.indexOf("Purchase Order");
+                  const prodNameIdx = headers.indexOf("Product Name");
+                  
+                  const issue1Idx = headers.indexOf("Customer Reported Component Issue");
+                  const issue2Idx = headers.indexOf("Technician Verified Component Issue");
+                  const classIdx = headers.indexOf("Repair Classification");
+                  const partIdx = headers.indexOf("Part Number");
+                  
+                  if (repairTypeIdx !== -1 || prodNameIdx !== -1) {
+                    for(let j=headerRowIdx+1; j<temp.length; j++) {
+                      const row = temp[j];
+                      if(!row) continue;
+                      
+                      let bVal = "";
+                      if (branchIdx !== -1 && row[branchIdx]) {
+                          bVal = String(row[branchIdx]).trim();
+                      } else if (poIdx !== -1 && row[poIdx]) {
+                          const po = String(row[poIdx]).trim();
+                          const parts = po.split("-");
+                          if (parts.length > 1) {
+                              bVal = parts[parts.length - 1];
+                          }
+                      }
+                      if (!bVal || bVal === "null" || bVal === "None") {
+                          bVal = fileBranch || "Unknown";
+                      }
+                      
+                      const rType = repairTypeIdx !== -1 ? String(row[repairTypeIdx] || "").toUpperCase() : "";
+                      const pName = prodNameIdx !== -1 ? String(row[prodNameIdx] || "").toUpperCase() : "";
+                      
+                      const issue1 = issue1Idx !== -1 ? String(row[issue1Idx] || "").toUpperCase() : "";
+                      const issue2 = issue2Idx !== -1 ? String(row[issue2Idx] || "").toUpperCase() : "";
+                      const classification = classIdx !== -1 ? String(row[classIdx] || "").toUpperCase() : "";
+                      const partStr = partIdx !== -1 ? String(row[partIdx] || "").toUpperCase() : "";
+                      
+                      const fullContext = rType + " " + pName + " " + issue1 + " " + issue2 + " " + classification + " " + partStr;
+                      
+                      let mappedGsxType = "ACC";
+                      
+                      if (fullContext.includes("SERVICE NON-REPAIR")) {
+                          mappedGsxType = "Service Non-Repair";
+                      } else if (pName.includes("AIRPODS")) {
+                          mappedGsxType = "Airpods";
+                      } else if (pName.includes("IPAD")) {
+                          mappedGsxType = "iPad";
+                      } else if (pName.includes("WATCH")) {
+                          mappedGsxType = "Watch";
+                      } else if (pName.includes("MAC") || pName.includes("STUDIO")) {
+                          mappedGsxType = "CPU";
+                      } else if (pName.includes("IPHONE") || fullContext.includes("BATTERY") || fullContext.includes("DISPLAY")) {
+                          if (fullContext.includes("BATTERY")) mappedGsxType = "iPhone Battery";
+                          else if (fullContext.includes("DISPLAY")) mappedGsxType = "iPhone Display";
+                          else mappedGsxType = "iPhone Other";
+                      } else {
+                          mappedGsxType = "ACC";
+                      }
+                      
+                      dailyGsxRows.push({
+                        branch: bVal,
+                        type: mappedGsxType
+                      });
+                    }
+                  }
+              }
+           });
+
+           resolve({
+               fileName: fileName,
+               filePeriod: filePeriod,
+               compLabel: fileCompLabel,
+               sales: dailySalesRows,
+               gsx: dailyGsxRows
+           });
+
+        };
+        reader.onerror = function() { reject(new Error("Failed to read " + fileName)); };
+        reader.readAsArrayBuffer(file);
+     }));
+  }
+
+  Promise.all(promises).then(results => {
+      document.body.removeChild(overlay);
+      
+      let totalSalesRows = 0;
+      let totalGsxRows = 0;
+      let parsedFiles = [];
+
+      // Idempotent re-upload: find which (period, branch) comparison cells this upload touches,
+      // and drop existing rows for them so re-uploading REPLACES (not doubles) the data.
+      const touched = new Set();
+      results.forEach(res => {
+        res.sales.forEach(s => touched.add(res.filePeriod + "||" + String(s.branch)));
+        res.gsx.forEach(g => touched.add(res.filePeriod + "||" + String(g.branch)));
+      });
+      allData.sales = allData.sales.filter(r => !touched.has(String(r["ช่วงเดือน"]) + "||" + String(r["Branch (ID)"])));
+      allData.gsx   = allData.gsx.filter(r => !touched.has(String(r["ช่วงเดือน"]) + "||" + String(r["Branch (ID)"])));
+
+      results.forEach(res => {
+         const filePeriod = res.filePeriod;
+         const dailySalesRows = res.sales;
+         const dailyGsxRows = res.gsx;
+         
+         if (dailySalesRows.length > 0 || dailyGsxRows.length > 0) {
+             parsedFiles.push(`${res.fileName} → ${res.compLabel || filePeriod}`);
+             totalSalesRows += dailySalesRows.length;
+             totalGsxRows += dailyGsxRows.length;
+             // Comparison period + label are driven by the uploaded file name
+             PERIOD_COMP = filePeriod;
+             COMP_LABEL = res.compLabel || filePeriod;
+         }
+
+         const updateSalesRow = (branchId, type, val, period) => {
+             let adRow = allData.sales.find(r => r["ช่วงเดือน"] === period && String(r["Branch (ID)"]) === String(branchId));
+             if (!adRow) {
+                 let amName = "#N/A";
+                 const existing = allData.sales.find(r => String(r["Branch (ID)"]) === String(branchId));
+                 if(existing && existing["AM"]) amName = existing["AM"];
+                 
+                 adRow = {
+                   "AM": amName, "Branch (ID)": branchId, "Type": "iCare", "Group Type": "#N/A",
+                   "ช่วงปี": 2026, "ช่วงเดือน": period, "GSX": 0, "ยอดขาย": 0, "กำไร": 0,
+                   "AC+": 0, "ACC": 0, "CPU": 0, "Exchange": 0, "Film": 0, "iPhone Battery": 0,
+                   "iPhone Display": 0, "Privilege Member": 0, "Service Bill": 0
+                 };
+                 allData.sales.push(adRow);
+             }
+             if (adRow[type] !== undefined) adRow[type] += val;
+             if (type !== "GSX") adRow["ยอดขาย"] += val; 
+         };
+
+         const updateGsxRow = (branchId, type, val, period) => {
+             let gsxRow = allData.gsx.find(r => r["ช่วงเดือน"] === period && String(r["Branch (ID)"]) === String(branchId));
+             if (!gsxRow) {
+                 let amName = "#N/A";
+                 const existing = allData.gsx.find(r => String(r["Branch (ID)"]) === String(branchId));
+                 if(existing && existing["AM"]) amName = existing["AM"];
+
+                 gsxRow = {
+                   "AM": amName, "Branch (ID)": branchId, "Type": "iCare", "Group Type": "#N/A",
+                   "ช่วงปี": 2026, "ช่วงเดือน": period, "Grand Total": 0,
+                   "ACC": 0, "Airpods": 0, "CPU": 0, "iPad": 0, "iPhone Battery": 0, "iPhone Display": 0, "iPhone Other": 0, "Watch": 0
+                 };
+                 allData.gsx.push(gsxRow);
+             }
+             if (gsxRow[type] !== undefined) gsxRow[type] += val;
+         };
+
+         if (dailySalesRows.length > 0) {
+             dailySalesRows.forEach(sale => {
+                 updateSalesRow(sale.branch, sale.type, sale.total, filePeriod);
+             });
+         }
+         if (dailyGsxRows.length > 0) {
+             dailyGsxRows.forEach(gsx => {
+                 if (gsx.type !== "Service Non-Repair") {
+                     updateGsxRow(gsx.branch, "Grand Total", 1, filePeriod);
+                     updateGsxRow(gsx.branch, gsx.type, 1, filePeriod);
+                     updateSalesRow(gsx.branch, "GSX", 1, filePeriod);
+                 }
+             });
+         }
+      });
+      
+      let debugMsg = "สรุปการดึงข้อมูลรายวัน:\n";
+      if(parsedFiles.length > 0) {
+         debugMsg += "พบและนำเข้าข้อมูลจากไฟล์ต่อไปนี้สำเร็จ:\n" + parsedFiles.map(f => "- " + f).join("\n") + "\n\n";
+         debugMsg += "รวมยอดขาย: " + totalSalesRows + " รายการ\n";
+         debugMsg += "รวมงานซ่อม: " + totalGsxRows + " รายการ\n";
+         populateFilters();
+         renderAll();
+
+         // Build the aggregated comparison rows this upload produced (to save to the shared server)
+         const payload = [];
+         touched.forEach(function(key){
+           const i = key.indexOf("||"); const period = key.slice(0, i); const branch = key.slice(i + 2);
+           const sRow = allData.sales.find(r => String(r["ช่วงเดือน"]) === period && String(r["Branch (ID)"]) === branch);
+           if (sRow) payload.push({view:"sales", branch:branch, period:period, label:COMP_LABEL, row:sRow});
+           const gRow = allData.gsx.find(r => String(r["ช่วงเดือน"]) === period && String(r["Branch (ID)"]) === branch);
+           if (gRow) payload.push({view:"gsx", branch:branch, period:period, label:COMP_LABEL, row:gRow});
+         });
+         window.__lastWeekPayload = payload;
+
+         if (isOnline()) {
+           saveWeekToServer(payload, debugMsg);   // shared mode: push to Google so every branch sees it
+         } else {
+           alert(debugMsg);                        // local mode: this browser only
+         }
+      } else {
+         alert("ไม่พบข้อมูลยอดขายหรืองานซ่อมเลยครับ (ลองตรวจสอบชื่อคอลัมน์ในไฟล์ Excel ว่าตรงตามที่ระบบต้องการหรือไม่)");
+      }
+      
+  }).catch(err => {
+      if(document.body.contains(overlay)) document.body.removeChild(overlay);
+      console.error(err);
+      alert("เกิดข้อผิดพลาดในการอ่านไฟล์: " + err.message);
+  });
+}
+
+
+function initTheme(){
+  const saved=localStorage.getItem("dashboard-theme");
+  if(saved==="dark")document.documentElement.setAttribute("data-theme","dark");
+  document.getElementById("themeToggle").addEventListener("click",()=>{
+    const isDark=document.documentElement.getAttribute("data-theme")==="dark";
+    document.documentElement.setAttribute("data-theme",isDark?"light":"dark");
+    localStorage.setItem("dashboard-theme",isDark?"light":"dark");
+    if(catChart) renderCategoryChart(filterRows(allData[currentView]||[]));
+  });
+}
+
+// ====== VIEW TOGGLE ======
+function initViewToggle(){
+  document.querySelectorAll(".toggle-btn").forEach(btn=>{
+    btn.addEventListener("click",(e)=>{
+      document.querySelectorAll(".toggle-btn").forEach(b=>b.classList.remove("active"));
+      e.target.classList.add("active");
+      currentView = e.target.dataset.view;
+      populateFilters();
+      renderAll();
+    });
+  });
+}
+
+// ====== PULL TO REFRESH — MOBILE ======
+function initPullToRefresh(){
+  let startY=0,pulling=false;const indicator=document.getElementById("pullIndicator");const threshold=80;
+  document.addEventListener("touchstart",e=>{if(window.scrollY===0){startY=e.touches[0].clientY;pulling=true}},{passive:true});
+  document.addEventListener("touchmove",e=>{if(!pulling)return;const dy=e.touches[0].clientY-startY;if(dy>30){indicator.classList.add("visible");indicator.textContent=dy>threshold?"↻ ปล่อยเพื่อรีเฟรช":"↓ ดึงลงเพื่อรีเฟรช"}else{indicator.classList.remove("visible")}},{passive:true});
+  document.addEventListener("touchend",e=>{if(!pulling)return;pulling=false;const dy=e.changedTouches[0].clientY-startY;indicator.classList.remove("visible");if(dy>threshold){indicator.textContent="กำลังรีเฟรช...";indicator.classList.add("visible");loadData();setTimeout(()=>indicator.classList.remove("visible"),2000)}},{passive:true});
+}
+
+// ====== MASTER RENDER ======
+function renderAll(){
+  const f=filterRows(allData[currentView]||[]);
+  if(f.length===0){
+    document.getElementById("kpiGrid").innerHTML="";
+    document.getElementById("barsCard").innerHTML='<div class="empty-state"><p>ไม่มีข้อมูลสำหรับแท็บนี้</p></div>';
+    document.getElementById("categoryTableWrap").innerHTML="";
+    document.getElementById("matrixWrap").innerHTML="";
+    if(catChart) { catChart.destroy(); catChart=null; }
+    return;
+  }
+  
+  const bc=document.getElementById("barsCard");
+  if(!document.getElementById("categoryChart")){
+    bc.innerHTML='<canvas id="categoryChart"></canvas>';
+  }
+  
+  renderKpis(f);renderCategoryChart(f);renderCategoryTable(f);renderMatrix(f);
+}
+
+// ====== LOAD DATA ======
+function setStatus(live,text){const b=document.getElementById("statusBadge"),s=document.getElementById("statusText");s.textContent=text;live?b.classList.remove("preview"):b.classList.add("preview")}
+function onDataLoaded(data){
+  document.getElementById("loadingOverlay").classList.add("hidden");
+  document.getElementById("btnRefresh").classList.remove("loading");
+  if(!data||data.error){setStatus(false,"เกิดข้อผิดพลาด");alert("Error: "+(data?data.error:"ไม่ได้รับข้อมูล"));return}
+  
+  let sRows = data.sales || (data.rows ? data.rows : []);
+  let gRows = data.gsx || [];
+  
+  allData = {
+    sales: normalizeRows(sRows),
+    gsx: normalizeRows(gRows)
+  };
+  
+  const hasData = allData.sales.length>0 || allData.gsx.length>0;
+  isLive=hasData;
+  document.getElementById("lastUpdated").textContent = hasData ? ("อัปเดตล่าสุด: "+new Date().toLocaleString("th-TH")) : "";
+  setStatus(false, hasData ? "ประมวลผลในเครื่อง (Local)" : "รอนำเข้าไฟล์ Master");
+  populateFilters();renderAll();showBlankStateBanner();
+}
+
+function showBlankStateBanner() {
+    if (allData.sales.length === 0 && allData.gsx.length === 0) {
+        const wrap = document.querySelector(".page-wrap");
+        let banner = document.getElementById("blankBanner");
+        if (!banner) {
+            banner = document.createElement("div");
+            banner.id = "blankBanner";
+            banner.style.padding = "20px";
+            banner.style.background = "#fff8e6";
+            banner.style.color = "#c67d00";
+            banner.style.border = "2px dashed #ffc107";
+            banner.style.borderRadius = "12px";
+            banner.style.textAlign = "center";
+            banner.style.marginBottom = "24px";
+            banner.style.fontWeight = "bold";
+            banner.style.fontSize = "1.2rem";
+            banner.innerHTML = isOnline()
+              ? "📭 ยังไม่มีไฟล์ Master ในระบบส่วนกลาง — รอทีม Audit อัปโหลดไฟล์ Master ก่อน แล้วกด <b style='color:#d32f2f;'>⟳ Refresh</b>"
+              : "📭 ยังไม่มีข้อมูล กรุณากดปุ่ม <b style='color:#d32f2f;'>Import Excel</b> เพื่ออัปโหลดไฟล์ Master (ทีม Audit) เป็นอันดับแรก!";
+            wrap.insertBefore(banner, wrap.children[1]); // Insert after header
+        }
+    } else {
+        const banner = document.getElementById("blankBanner");
+        if (banner) banner.remove();
+    }
+}
+
+// ====== ONLINE MODE (backend transport) ======
+// Set BACKEND_URL to the Apps Script Web App /exec URL when the front-end is hosted
+// OUTSIDE Apps Script (e.g. GitHub Pages). Leave "" to run offline (open the file) or
+// inside Apps Script (uses google.script.run automatically).
+const BACKEND_URL = "https://script.google.com/macros/s/AKfycbxcwlpRXbtPdaIWUA9xY6yHIaUMK3RLuog3btyq4E-6l1fBwN6wRSCVQbSgr3xnVFJ4/exec";
+
+function gasAvailable(){ return (typeof google!=="undefined" && google.script && google.script.run); }
+function isOnline(){ return !!BACKEND_URL || gasAvailable(); }
+
+// Unified backend call. Reads: api("getMaster") / api("getWeekData").
+// Writes: api("saveWeekData",{pin,payload}) / api("clearWeekData",{pin,branch}).
+// Always resolves to a normalized {ok, master?, list?, error?, removed?} object.
+function api(action, data){
+  if(BACKEND_URL){
+    if(data===undefined){
+      return fetch(BACKEND_URL+"?action="+encodeURIComponent(action)).then(r=>r.json());
+    }
+    return fetch(BACKEND_URL,{
+      method:"POST",
+      headers:{"Content-Type":"text/plain;charset=utf-8"}, // simple request → no CORS preflight
+      body:JSON.stringify(Object.assign({action:action}, data))
+    }).then(r=>r.json());
+  }
+  if(gasAvailable()){
+    return new Promise(function(res,rej){
+      const g=google.script.run.withSuccessHandler(res).withFailureHandler(rej);
+      if(action==="getMaster") g.getMaster();
+      else if(action==="getWeekData") g.getWeekData();
+      else if(action==="saveWeekData") g.saveWeekData(data.pin, data.payload);
+      else if(action==="clearWeekData") g.clearWeekData(data.pin, data.branch||"");
+      else rej(new Error("unknown action"));
+    }).then(function(v){
+      if(action==="getMaster") return {ok:true, master:v};
+      if(action==="getWeekData") return {ok:true, list:v};
+      return {ok:true};
+    });
+  }
+  return Promise.reject(new Error("offline"));
+}
+
+// Decode a base64 string (the Master .xlsx bytes) into a Uint8Array for SheetJS.
+function b64ToBytes(b64){
+  const bin=atob(b64); const len=bin.length; const bytes=new Uint8Array(len);
+  for(let i=0;i<len;i++) bytes[i]=bin.charCodeAt(i);
+  return bytes;
+}
+
+function loadData(){
+  document.getElementById("loadingOverlay").classList.remove("hidden");
+  document.getElementById("btnRefresh").classList.add("loading");
+  if(isOnline()){
+    document.querySelector(".loading-text").textContent="กำลังโหลดข้อมูลจากส่วนกลาง...";
+    api("getMaster")
+      .then(function(res){ if(res && res.ok===false) throw new Error(res.error||"getMaster failed"); onMasterBytes(res.master); })
+      .catch(function(err){
+        document.getElementById("loadingOverlay").classList.add("hidden");
+        document.getElementById("btnRefresh").classList.remove("loading");
+        setStatus(false,"เชื่อมต่อส่วนกลางล้มเหลว");
+        alert("โหลดข้อมูลจากส่วนกลางไม่สำเร็จ: "+(err.message||err));
+      });
+  } else {
+    // Local/offline mode: blank state, user imports the Master file manually.
+    setTimeout(()=>{ onDataLoaded({sales:[],gsx:[]}); showBlankStateBanner(); },300);
+  }
+}
+
+// Master bytes arrived from the server → parse (SheetJS) → then fetch shared Week data.
+function onMasterBytes(b64){
+  if(!b64){
+    document.getElementById("loadingOverlay").classList.add("hidden");
+    document.getElementById("btnRefresh").classList.remove("loading");
+    onDataLoaded({sales:[],gsx:[]});
+    setStatus(false,"ยังไม่มีไฟล์ Master (รอทีม Audit อัปโหลด)");
+    showBlankStateBanner();
+    return;
+  }
+  try{
+    const wb=XLSX.read(b64ToBytes(b64),{type:'array'});
+    loadMasterWorkbook(wb, "ออนไลน์ (ส่วนกลาง)");   // sets allData + periods + renders
+    api("getWeekData")
+      .then(function(res){ onWeekDataLoaded((res&&res.list)||[]); })
+      .catch(function(){ document.getElementById("loadingOverlay").classList.add("hidden"); document.getElementById("btnRefresh").classList.remove("loading"); });
+  }catch(err){
+    document.getElementById("loadingOverlay").classList.add("hidden");
+    document.getElementById("btnRefresh").classList.remove("loading");
+    alert("อ่านไฟล์ Master จากส่วนกลางไม่สำเร็จ: "+err.message);
+  }
+}
+
+// Shared Week data arrived → merge onto the master and render.
+function onWeekDataLoaded(list){
+  mergeSharedWeek(list);
+  document.getElementById("loadingOverlay").classList.add("hidden");
+  document.getElementById("btnRefresh").classList.remove("loading");
+  populateFilters(); renderAll();
+  const n=(list&&list.length)||0;
+  document.getElementById("lastUpdated").textContent="อัปเดตล่าสุด: "+new Date().toLocaleString("th-TH");
+  setStatus(true, "ออนไลน์ (ส่วนกลาง)" + (n? " • ข้อมูล Week "+n+" รายการ" : ""));
+}
+
+// Merge shared Week rows (replacing any existing row with the same view+branch+period).
+function mergeSharedWeek(list){
+  if(!list||!list.length) return;
+  let lp="", ll="";
+  list.forEach(function(item){
+    const arr=(item.view==="gsx")?allData.gsx:allData.sales;
+    const idx=arr.findIndex(r=>String(r["ช่วงเดือน"])===item.period && String(r["Branch (ID)"])===String(item.branch));
+    if(idx>=0) arr.splice(idx,1);
+    arr.push(item.row);
+    lp=item.period; ll=item.label||ll;
+  });
+  if(lp){ PERIOD_COMP=lp; COMP_LABEL=ll||COMP_LABEL; }
+}
+
+// Drop Week-import rows. With a branch → only that branch's Week rows; otherwise all Week rows.
+// Master rows (base / tracking / RR periods) are always kept.
+function purgeWeekRows(branch){
+  const masterPeriods=[PERIOD_JUNE,PERIOD_ACTUAL,PERIOD_RR];
+  const keep=r=>{
+    if(masterPeriods.indexOf(String(r["ช่วงเดือน"]))>=0) return true;      // always keep Master rows
+    if(branch) return String(r["Branch (ID)"])!==String(branch);            // per-branch: keep other branches' Week rows
+    return false;                                                            // clear-all: drop every Week row
+  };
+  allData.sales=allData.sales.filter(keep);
+  allData.gsx  =allData.gsx.filter(keep);
+}
+
+// Re-fetch only the shared Week data (light poll; leaves the Master untouched).
+function refreshWeekOnly(){
+  if(!isOnline()) return;
+  api("getWeekData").then(function(res){
+    purgeWeekRows();
+    mergeSharedWeek((res&&res.list)||[]);
+    renderAll();
+  }).catch(function(){});
+}
+
+// Push this branch's aggregated Week rows to the shared server (PIN-protected).
+function saveWeekToServer(payload, localMsg){
+  const pin=prompt("กรุณาใส่ PIN เพื่อบันทึกข้อมูลขึ้นส่วนกลาง (ให้ทุกสาขาเห็น):");
+  if(pin===null){ alert(localMsg+"\n(แสดงเฉพาะในเครื่องนี้ ยังไม่ได้ส่งขึ้นส่วนกลาง)"); return; }
+  document.getElementById("loadingOverlay").classList.remove("hidden");
+  document.querySelector(".loading-text").textContent="กำลังบันทึกขึ้นส่วนกลาง...";
+  api("saveWeekData",{pin:pin, payload:payload})
+    .then(function(res){
+      document.getElementById("loadingOverlay").classList.add("hidden");
+      if(res && res.ok===false) throw new Error(res.error||"save failed");
+      alert(localMsg+"\n✅ บันทึกขึ้นส่วนกลางแล้ว ทุกสาขาจะเห็นข้อมูลนี้");
+    })
+    .catch(function(err){
+      document.getElementById("loadingOverlay").classList.add("hidden");
+      alert("บันทึกขึ้นส่วนกลางไม่สำเร็จ: "+(err.message||err)+"\n(ข้อมูลยังแสดงอยู่ในเครื่องนี้)");
+    });
+}
+
+// Branches that currently have Week (comparison) data loaded.
+function branchesWithWeekData(){
+  const masterPeriods=[PERIOD_JUNE,PERIOD_ACTUAL,PERIOD_RR];
+  const set=new Set();
+  [...(allData.sales||[]),...(allData.gsx||[])].forEach(r=>{
+    if(masterPeriods.indexOf(String(r["ช่วงเดือน"]))<0){ const b=String(r["Branch (ID)"]||"").trim(); if(b) set.add(b); }
+  });
+  return [...set].sort((a,b)=>a.localeCompare(b,undefined,{numeric:true}));
+}
+
+// Small modal to pick what to clear. Resolves to "" (all), a branch id, or null (cancel).
+function openClearDialog(){
+  return new Promise(function(resolve){
+    const branches=branchesWithWeekData();
+    const cur=document.getElementById("selBranch").value;
+    const ov=document.createElement("div");
+    ov.style.cssText="position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:10000;display:flex;align-items:center;justify-content:center;padding:20px";
+    const opts=branches.map(b=>`<option value="${b}" ${b===cur?"selected":""}>${b}</option>`).join("");
+    ov.innerHTML=`<div style="background:var(--card-solid);color:var(--text-primary);border:1px solid var(--border);border-radius:var(--radius);box-shadow:var(--shadow-md);padding:22px;max-width:360px;width:100%;font-family:var(--font)">
+      <div style="font-weight:700;font-size:1.05rem;margin-bottom:4px">🗑️ ล้างข้อมูล Week</div>
+      <div style="font-size:.83rem;color:var(--text-secondary);margin-bottom:16px">เลือกสิ่งที่ต้องการล้าง — การกระทำนี้ย้อนกลับไม่ได้</div>
+      ${branches.length?`<label style="font-size:.72rem;font-weight:600;color:var(--text-secondary);text-transform:uppercase;letter-spacing:.4px">เลือกสาขา</label>
+      <select id="clrBranch" style="width:100%;margin:5px 0 16px">${opts}</select>`:`<div style="font-size:.85rem;color:var(--text-tertiary);margin-bottom:16px">— ยังไม่มีข้อมูล Week รายสาขา —</div>`}
+      <div style="display:flex;flex-direction:column;gap:9px">
+        ${branches.length?`<button id="clrOne" class="btn btn-danger" style="width:100%;justify-content:center">ล้างเฉพาะสาขานี้</button>`:""}
+        <button id="clrAll" class="btn btn-danger" style="width:100%;justify-content:center;background:#a01810">ล้างทั้งหมด (ทุกสาขา)</button>
+        <button id="clrCancel" class="btn btn-outline" style="width:100%;justify-content:center">ยกเลิก</button>
+      </div>
+    </div>`;
+    document.body.appendChild(ov);
+    function done(v){ if(document.body.contains(ov)) document.body.removeChild(ov); resolve(v); }
+    const one=ov.querySelector("#clrOne"); if(one) one.onclick=()=>done(ov.querySelector("#clrBranch").value);
+    ov.querySelector("#clrAll").onclick=()=>done("");
+    ov.querySelector("#clrCancel").onclick=()=>done(null);
+    ov.addEventListener("click",e=>{ if(e.target===ov) done(null); });
+  });
+}
+
+// Clear Week-comparison data — per branch or all. Online: PIN-protected shared wipe; offline: local only.
+function handleClearWeekData(){
+  openClearDialog().then(function(scope){
+    if(scope===null) return;                          // cancelled
+    const label = scope ? ("สาขา "+scope) : "ทั้งหมด (ทุกสาขา)";
+    if(isOnline()){
+      const pin=prompt("กรุณาใส่ PIN เพื่อล้างข้อมูล Week "+label+":");
+      if(pin===null) return;
+      if(!confirm("ยืนยันล้างข้อมูล Week "+label+" ในระบบส่วนกลาง?\nการกระทำนี้ย้อนกลับไม่ได้")) return;
+      document.getElementById("loadingOverlay").classList.remove("hidden");
+      document.querySelector(".loading-text").textContent="กำลังล้างข้อมูล...";
+      api("clearWeekData",{pin:pin, branch:scope})
+        .then(function(res){
+          document.getElementById("loadingOverlay").classList.add("hidden");
+          if(res && res.ok===false) throw new Error(res.error||"clear failed");
+          purgeWeekRows(scope);
+          if(!scope){ PERIOD_COMP=""; COMP_LABEL=""; }
+          populateFilters(); renderAll();
+          alert("✅ ล้างข้อมูล Week "+label+" เรียบร้อย");
+        })
+        .catch(function(err){
+          document.getElementById("loadingOverlay").classList.add("hidden");
+          alert("ล้างข้อมูลไม่สำเร็จ: "+(err.message||err));
+        });
+    } else {
+      if(!confirm("ยืนยันล้างข้อมูล Week "+label+" ที่นำเข้าไว้ในเครื่องนี้?")) return;
+      purgeWeekRows(scope);
+      if(!scope){ PERIOD_COMP=""; COMP_LABEL=""; }
+      populateFilters(); renderAll();
+      alert("ล้างข้อมูล Week "+label+" ในเครื่องนี้เรียบร้อย");
+    }
+  });
+}
+
+// ====== EVENT LISTENERS ======
+document.getElementById("btnRefresh").addEventListener("click",()=>{loadData();resetAutoRefresh()});
+document.getElementById("btnReset").addEventListener("click",()=>{document.getElementById("selAM").value="";document.getElementById("selBranch").value="";rebuildBranches();renderAll()});
+document.getElementById("selAM").addEventListener("change",function(){rebuildBranches();renderAll()});
+document.getElementById("selBranch").addEventListener("change",renderAll);
+document.getElementById("btnExport").addEventListener("click",exportCSV);
+document.getElementById("fileImport").addEventListener("change",handleExcelUpload);
+document.getElementById("fileImportWeek").addEventListener("change",handleWeekImport);
+document.getElementById("btnClearWeek").addEventListener("click",handleClearWeekData);
+
+// ====== AUTO REFRESH ======
+// Online mode only: pull other branches' Week uploads every 2 min (Master is left untouched).
+function resetAutoRefresh(){if(autoTimer)clearInterval(autoTimer);if(isOnline()){autoTimer=setInterval(refreshWeekOnly,120000);}}
+
+// ====== INIT ======
+window.addEventListener("DOMContentLoaded",()=>{initTheme();initViewToggle();initPullToRefresh();loadData();resetAutoRefresh()});
+</script>
+</body>
+</html>

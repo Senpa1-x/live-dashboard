@@ -1290,18 +1290,23 @@ function onWeekDataLoaded(list){
   setStatus(true, "ออนไลน์ (ส่วนกลาง)" + (n? " • ข้อมูล Week "+n+" รายการ" : ""));
 }
 
-// Merge shared Week rows (replacing any existing row with the same view+branch+period).
+// Merge shared Week rows. The dashboard has a SINGLE comparison column, but branches may have
+// uploaded files whose filenames imply different day-ranges (e.g. 1-5 vs 1-12) → stored under
+// different periods. Re-tag every Week row to ONE canonical comparison period (the Master's, if
+// available) so EVERY branch's Week data lands in the comparison column and shows.
 function mergeSharedWeek(list){
   if(!list||!list.length) return;
-  let lp="", ll="";
+  const canon = PERIOD_COMP || list[list.length-1].period;
+  const canonLabel = COMP_LABEL || list[list.length-1].label || "";
   list.forEach(function(item){
     const arr=(item.view==="gsx")?allData.gsx:allData.sales;
-    const idx=arr.findIndex(r=>String(r["ช่วงเดือน"])===item.period && String(r["Branch (ID)"])===String(item.branch));
+    const row=item.row;
+    row["ช่วงเดือน"]=canon;   // unify period so mixed 1-5 / 1-12 uploads all show together
+    const idx=arr.findIndex(r=>String(r["ช่วงเดือน"])===canon && String(r["Branch (ID)"])===String(item.branch));
     if(idx>=0) arr.splice(idx,1);
-    arr.push(item.row);
-    lp=item.period; ll=item.label||ll;
+    arr.push(row);
   });
-  if(lp){ PERIOD_COMP=lp; COMP_LABEL=ll||COMP_LABEL; }
+  PERIOD_COMP=canon; COMP_LABEL=canonLabel;
 }
 
 // Drop Week-import rows. With a branch → only that branch's Week rows; otherwise all Week rows.

@@ -425,16 +425,53 @@ function renderCategoryChart(rows){
 
   Chart.defaults.font.family = '-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif';
 
+  // Abbreviate a value for compact display (1.7M / 17K / 89).
+  function abbrevNum(v){
+    if(v>=1000000) return (v/1000000).toFixed(1)+'M';
+    if(v>=1000) return (v/1000).toFixed(0)+'K';
+    return String(Math.round(v));
+  }
+
+  // Draw the abbreviated value on top of each (non-zero) bar — rotated vertically so the
+  // 3-4 bars per category don't overlap.
+  const valueLabels={
+    id:'valueLabels',
+    afterDatasetsDraw(chart){
+      const c=chart.ctx;
+      c.save();
+      c.font='700 9px '+Chart.defaults.font.family;
+      c.fillStyle=textColor;
+      chart.data.datasets.forEach((ds,di)=>{
+        const meta=chart.getDatasetMeta(di);
+        if(meta.hidden) return;
+        meta.data.forEach((el,i)=>{
+          const v=ds.data[i];
+          if(v===null||v===undefined||v<=0) return;
+          c.save();
+          c.translate(el.x, el.y-4);
+          c.rotate(-Math.PI/2);            // read bottom-to-top, sitting just above the bar
+          c.textAlign='left';
+          c.textBaseline='middle';
+          c.fillText(abbrevNum(v), 0, 0);
+          c.restore();
+        });
+      });
+      c.restore();
+    }
+  };
+
   catChart=new Chart(ctx,{
     type:'bar',
     data:{
       labels:conf.keys,
       datasets:datasets
     },
+    plugins:[valueLabels],
     options:{
       responsive:true,
       maintainAspectRatio:false,
-      indexAxis:'y',
+      indexAxis:'x',
+      layout:{padding:{top:38}},
       interaction: {
         mode: 'index',
         intersect: false,
@@ -459,12 +496,12 @@ function renderCategoryChart(rows){
       },
       scales:{
         x:{
-          grid:{color:gridColor},
-          ticks:{color:textColor,callback:function(value){return value>=1000000?(value/1000000).toFixed(1)+'M':value>=1000?(value/1000).toFixed(0)+'K':value}}
-        },
-        y:{
           grid:{display:false},
           ticks:{color:textColor,font:{weight:'500'}}
+        },
+        y:{
+          grid:{color:gridColor},
+          ticks:{color:textColor,callback:function(value){return value>=1000000?(value/1000000).toFixed(1)+'M':value>=1000?(value/1000).toFixed(0)+'K':value}}
         }
       }
     }

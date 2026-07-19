@@ -236,6 +236,22 @@ tr.row-worst td:first-child{border-left:3px solid var(--red)}
   </div>
   <div class="table-card"><div class="table-card-inner"><div class="tbl-wrap" id="categoryTableWrap"></div></div></div>
 
+  <!-- YOY TREND -->
+  <div class="section-header">
+    <h2>แนวโน้มรายเดือน ปีนี้ vs ปีก่อน</h2>
+    <span class="badge" id="trendBadge">Year on Year</span>
+  </div>
+  <div class="bars-card" id="trendCard">
+    <canvas id="trendChart"></canvas>
+  </div>
+
+  <!-- YOY TABLE -->
+  <div class="section-header">
+    <h2>ตาราง YoY รายหมวด</h2>
+    <span class="badge" id="yoyBadge">YoY</span>
+  </div>
+  <div class="table-card"><div class="table-card-inner"><div class="tbl-wrap" id="yoyTableWrap"></div></div></div>
+
   <!-- MATRIX -->
   <div class="section-header">
     <h2>Type × Category Matrix</h2>
@@ -248,6 +264,8 @@ tr.row-worst td:first-child{border-left:3px solid var(--red)}
 <script>
 // ====== CONSTANTS ======
 let PERIOD_JUNE="", PERIOD_ACTUAL="", PERIOD_RR="", PERIOD_COMP="", COMP_LABEL="";
+let PERIOD_BASE_LY="", PERIOD_RR_LY="", MASTER_PERIODS=new Set();
+const MONTHS_TH=["ม.ค.","ก.พ.","มี.ค.","เม.ย.","พ.ค.","มิ.ย.","ก.ค.","ส.ค.","ก.ย.","ต.ค.","พ.ย.","ธ.ค."];
 const COL_AM="AM",COL_BRANCH="Branch (ID)",COL_PERIOD="ช่วงเดือน",COL_TYPE="Type";
 
 const CONFIG = {
@@ -268,6 +286,7 @@ let allData = { sales: [], gsx: [] };
 let compWeekData = { sales: [], gsx: [], periodName: "" };
 let allBranches=[],isLive=false,autoTimer=null;
 let catChart=null;
+let trendChart=null;
 let currentView="sales";
 
 // ====== FORMAT HELPERS ======
@@ -360,6 +379,28 @@ function renderKpis(rows){
 
   cards.push({label:"% เปลี่ยนแปลง RR vs " + monthJune,value:pct!==null?fmtPct(pct):"-",sub:"(" + PERIOD_RR + " เทียบ " + PERIOD_JUNE + ")",color:pc==="pos"?"var(--green)":pc==="neg"?"var(--red)":"var(--gray)"});
 
+  // ===== Year-on-Year cards (แสดงเมื่อ Master มีข้อมูลปีที่แล้ว) =====
+  const baseLY=sumCol(rows,PERIOD_BASE_LY,conf.totalCol);
+  if(baseLY!==null){
+    const yoyB=calcPct(june,baseLY), cB=pctClass(yoyB);
+    cards.push({
+      label:"% YoY "+PERIOD_JUNE+" vs "+PERIOD_BASE_LY,
+      value:yoyB!==null?fmtPct(yoyB):"-",
+      sub:fmt(baseLY)+" → "+fmt(june)+" "+conf.unit,
+      color:cB==="pos"?"var(--green)":cB==="neg"?"var(--red)":"var(--gray)"
+    });
+  }
+  const rrLY=sumCol(rows,PERIOD_RR_LY,conf.totalCol);
+  if(rrLY!==null){
+    const yoyR=calcPct(rr,rrLY), cR=pctClass(yoyR);
+    cards.push({
+      label:"% YoY คาดการณ์ vs "+PERIOD_RR_LY+" จริง",
+      value:yoyR!==null?fmtPct(yoyR):"-",
+      sub:fmt(rrLY)+" → "+fmt(rr)+" "+conf.unit+" ("+PERIOD_RR+")",
+      color:cR==="pos"?"var(--green)":cR==="neg"?"var(--red)":"var(--gray)"
+    });
+  }
+
   document.getElementById("kpiGrid").innerHTML=cards.map(c=>`<div class="kpi-card"><div class="kpi-label">${c.label}</div><div class="kpi-value" style="color:${c.color}">${c.value}</div><div class="kpi-sub">${c.sub}</div></div>`).join("");
 }
 
@@ -373,6 +414,43 @@ function findBestWorst(rows){
     if(pct!==null){if(pct>bestPct){bestPct=pct;best=cat}if(pct<worstPct){worstPct=pct;worst=cat}}
   });
   return{best,worst,bestPct,worstPct};
+}
+
+// ====== CHART HELPERS (shared by category + trend charts) ======
+// Abbreviate a value for compact display (1.7M / 17K / 89).
+function abbrevNum(v){
+  if(v>=1000000) return (v/1000000).toFixed(1)+'M';
+  if(v>=1000) return (v/1000).toFixed(0)+'K';
+  return String(Math.round(v));
+}
+// Chart.js plugin: draw the abbreviated value above each (non-zero) bar, rotated
+// vertically so tightly-packed bars don't overlap.
+function makeValueLabels(color){
+  return {
+    id:'valueLabels',
+    afterDatasetsDraw(chart){
+      const c=chart.ctx;
+      c.save();
+      c.font='700 9px '+Chart.defaults.font.family;
+      c.fillStyle=color;
+      chart.data.datasets.forEach((ds,di)=>{
+        const meta=chart.getDatasetMeta(di);
+        if(meta.hidden) return;
+        meta.data.forEach((el,i)=>{
+          const v=ds.data[i];
+          if(v===null||v===undefined||v<=0) return;
+          c.save();
+          c.translate(el.x, el.y-4);
+          c.rotate(-Math.PI/2);            // read bottom-to-top, sitting just above the bar
+          c.textAlign='left';
+          c.textBaseline='middle';
+          c.fillText(abbrevNum(v), 0, 0);
+          c.restore();
+        });
+      });
+      c.restore();
+    }
+  };
 }
 
 // ====== RENDER CATEGORY CHART (Chart.js) ======
@@ -425,48 +503,13 @@ function renderCategoryChart(rows){
 
   Chart.defaults.font.family = '-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif';
 
-  // Abbreviate a value for compact display (1.7M / 17K / 89).
-  function abbrevNum(v){
-    if(v>=1000000) return (v/1000000).toFixed(1)+'M';
-    if(v>=1000) return (v/1000).toFixed(0)+'K';
-    return String(Math.round(v));
-  }
-
-  // Draw the abbreviated value on top of each (non-zero) bar — rotated vertically so the
-  // 3-4 bars per category don't overlap.
-  const valueLabels={
-    id:'valueLabels',
-    afterDatasetsDraw(chart){
-      const c=chart.ctx;
-      c.save();
-      c.font='700 9px '+Chart.defaults.font.family;
-      c.fillStyle=textColor;
-      chart.data.datasets.forEach((ds,di)=>{
-        const meta=chart.getDatasetMeta(di);
-        if(meta.hidden) return;
-        meta.data.forEach((el,i)=>{
-          const v=ds.data[i];
-          if(v===null||v===undefined||v<=0) return;
-          c.save();
-          c.translate(el.x, el.y-4);
-          c.rotate(-Math.PI/2);            // read bottom-to-top, sitting just above the bar
-          c.textAlign='left';
-          c.textBaseline='middle';
-          c.fillText(abbrevNum(v), 0, 0);
-          c.restore();
-        });
-      });
-      c.restore();
-    }
-  };
-
   catChart=new Chart(ctx,{
     type:'bar',
     data:{
       labels:conf.keys,
       datasets:datasets
     },
-    plugins:[valueLabels],
+    plugins:[makeValueLabels(textColor)],
     options:{
       responsive:true,
       maintainAspectRatio:false,
@@ -506,6 +549,125 @@ function renderCategoryChart(rows){
       }
     }
   });
+}
+
+// ====== RENDER YOY TREND CHART (this year vs last year, month by month) ======
+function renderTrendChart(rows){
+  const conf=CONFIG[currentView];
+  const card=document.getElementById("trendCard");
+  const yMatch=String(PERIOD_ACTUAL||PERIOD_JUNE||"").match(/'(\d{2})/);
+  const yy=yMatch?yMatch[1]:"";
+  const py=yy?String(parseInt(yy,10)-1).padStart(2,"0"):"";
+  const badge=document.getElementById("trendBadge");
+  if(badge) badge.textContent = yy ? ("20"+py+" vs 20"+yy) : "Year on Year";
+
+  const dataPrev=[],dataCur=[];
+  MONTHS_TH.forEach(function(m){
+    dataPrev.push(yy?(sumCol(rows,m+"'"+py,conf.totalCol)||0):0);
+    dataCur.push(yy?(sumCol(rows,m+"'"+yy,conf.totalCol)||0):0);
+  });
+  const hasAny=dataPrev.some(v=>v>0)||dataCur.some(v=>v>0);
+  if(!hasAny){
+    if(trendChart){trendChart.destroy();trendChart=null;}
+    card.innerHTML='<div class="empty-state"><div class="empty-icon">📉</div><p>ไม่มีข้อมูลรายเดือนสำหรับเทียบปีต่อปี</p></div>';
+    return;
+  }
+  if(!document.getElementById("trendChart")) card.innerHTML='<canvas id="trendChart"></canvas>';
+
+  const isDark=document.documentElement.getAttribute("data-theme")==="dark";
+  const textColor=isDark?"#98989d":"#636366";
+  const gridColor=isDark?"rgba(255,255,255,0.1)":"rgba(0,0,0,0.05)";
+  const bgPrev=isDark?"#636366":"#c7c7cc";     // ปีก่อน = เทา (โทนเดียวกับเดือนฐานในกราฟหมวด)
+  const bgCur=isDark?"#0a84ff":"#007aff";      // ปีนี้ = น้ำเงิน
+
+  const ctx=document.getElementById("trendChart").getContext("2d");
+  if(trendChart) trendChart.destroy();
+  trendChart=new Chart(ctx,{
+    type:'bar',
+    data:{
+      labels:MONTHS_TH,
+      datasets:[
+        {label:"20"+py+" (ปีก่อน)",data:dataPrev,backgroundColor:bgPrev,borderRadius:4,barPercentage:0.85,categoryPercentage:0.72},
+        {label:"20"+yy+" (ปีนี้)",data:dataCur,backgroundColor:bgCur,borderRadius:4,barPercentage:0.85,categoryPercentage:0.72}
+      ]
+    },
+    plugins:[makeValueLabels(textColor)],
+    options:{
+      responsive:true,
+      maintainAspectRatio:false,
+      indexAxis:'x',
+      layout:{padding:{top:38}},
+      interaction:{mode:'index',intersect:false},
+      plugins:{
+        legend:{position:'top',labels:{color:textColor,usePointStyle:true,boxWidth:8,padding:20}},
+        tooltip:{
+          backgroundColor:isDark?"rgba(28,28,30,0.95)":"rgba(255,255,255,0.95)",
+          titleColor:isDark?"#fff":"#000",
+          bodyColor:isDark?"#ccc":"#333",
+          borderColor:isDark?"rgba(255,255,255,0.1)":"rgba(0,0,0,0.1)",
+          borderWidth:1,padding:12,boxPadding:6,
+          callbacks:{
+            label:function(c){return c.dataset.label+': '+fmt(c.raw)+' '+conf.unit},
+            afterBody:function(items){
+              // แสดง %YoY ของเดือนนั้นใน tooltip
+              if(items.length<1) return "";
+              const i=items[0].dataIndex;
+              const p=calcPct(dataCur[i]||null, dataPrev[i]||null);
+              return p===null ? "" : "YoY: "+fmtPct(p);
+            }
+          }
+        }
+      },
+      scales:{
+        x:{grid:{display:false},ticks:{color:textColor,font:{weight:'500'}}},
+        y:{grid:{color:gridColor},ticks:{color:textColor,callback:function(value){return value>=1000000?(value/1000000).toFixed(1)+'M':value>=1000?(value/1000).toFixed(0)+'K':value}}}
+      }
+    }
+  });
+}
+
+// ====== RENDER YOY CATEGORY TABLE (base month vs same month last year) ======
+function renderYoYTable(rows){
+  const conf=CONFIG[currentView];
+  const wrap=document.getElementById("yoyTableWrap");
+  const badge=document.getElementById("yoyBadge");
+  if(badge) badge.textContent=(PERIOD_BASE_LY&&PERIOD_JUNE)?(PERIOD_BASE_LY+" vs "+PERIOD_JUNE):"YoY";
+  if(!PERIOD_BASE_LY){ wrap.innerHTML=""; return; }
+
+  const rowData=conf.keys.map(function(cat){
+    const ly=sumCol(rows,PERIOD_BASE_LY,cat);
+    const cy=sumCol(rows,PERIOD_JUNE,cat);
+    const diff=(ly!==null||cy!==null)?(cy||0)-(ly||0):null;
+    return {cat:cat, ly:ly, cy:cy, diff:diff, pct:calcPct(cy,ly)};
+  });
+  function sN(k){const vs=rowData.map(d=>d[k]).filter(v=>v!==null);return vs.length?vs.reduce((a,b)=>a+b,0):null}
+  const tL=sN("ly"), tC=sN("cy");
+  const tD=(tL!==null||tC!==null)?(tC||0)-(tL||0):null, tP=calcPct(tC,tL);
+
+  function pH(p){const c=pctClass(p);return p===null?'<span class="chip-neu">-</span>':`<span class="chip-${c}">${fmtPct(p)}</span>`}
+  function dH(d){const c=pctClass(d);return d===null?'<span class="chip-neu">-</span>':`<span class="chip-${c}">${(d>=0?"+":"")+fmt(d)}</span>`}
+
+  wrap.innerHTML=`<table><thead><tr>
+    <th>Category</th>
+    <th>${PERIOD_BASE_LY} (ปีก่อน)</th>
+    <th>${PERIOD_JUNE} (ปีนี้)</th>
+    <th>ส่วนต่าง</th>
+    <th>% YoY</th>
+  </tr></thead>
+  <tbody>${rowData.map(d=>`<tr>
+      <td>${d.cat}</td>
+      <td>${fmt(d.ly)}</td>
+      <td>${fmt(d.cy)}</td>
+      <td>${dH(d.diff)}</td>
+      <td>${pH(d.pct)}</td>
+    </tr>`).join("")}</tbody>
+  <tfoot><tr>
+    <td>รวมทั้งหมด</td>
+    <td>${fmt(tL)}</td>
+    <td>${fmt(tC)}</td>
+    <td>${dH(tD)}</td>
+    <td>${pH(tP)}</td>
+  </tr></tfoot></table>`;
 }
 
 // ====== RENDER CATEGORY TABLE ======
@@ -718,8 +880,20 @@ function loadMasterWorkbook(workbook, statusLabel){
          pRR = uniqueArr.find(x => x === "RR " + monthYear);
          if (!pRR) pRR = uniqueArr.find(x => x.startsWith("RR") && x.includes(monthYear));
      }
-     targetPeriods = [pJune, pActual, pRR];
      PERIOD_JUNE = pJune; PERIOD_ACTUAL = pActual; PERIOD_RR = pRR;
+
+     // ===== Year-on-Year: also load every full month of this year and last year =====
+     // Shift a period's 'YY suffix back one year, e.g. "มิ.ย.'26" -> "มิ.ย.'25", "RR ก.ค.'26" -> "RR ก.ค.'25"
+     function lyOf(p){ const m=String(p||"").match(/^(.*?)'(\d{2})(.*)$/); if(!m) return ""; return m[1]+"'"+String(parseInt(m[2],10)-1).padStart(2,"0")+m[3]; }
+     const yMatch=String(pActual||pJune||"").match(/'(\d{2})/);
+     const yy=yMatch?yMatch[1]:"";
+     const py=yy?String(parseInt(yy,10)-1).padStart(2,"0"):"";
+     PERIOD_BASE_LY = lyOf(pJune);                                   // เดือนฐานปีที่แล้ว
+     PERIOD_RR_LY   = pRR ? lyOf(pRR).replace(/^RR\s*/,"") : "";     // เดือนเต็มปีที่แล้วของเดือน RR
+     targetPeriods = [pJune, pActual, pRR];
+     if(yy){ MONTHS_TH.forEach(function(m){ targetPeriods.push(m+"'"+yy); targetPeriods.push(m+"'"+py); }); }
+     targetPeriods = targetPeriods.filter(function(p,i){ return p && targetPeriods.indexOf(p)===i; });
+     MASTER_PERIODS = new Set(targetPeriods);
   }
 
   const salesKeys=['AM','Branch (ID)','Type','ช่วงปี','ช่วงเดือน','GSX','ยอดขาย','กำไร','AC+','ACC','CPU','Exchange','Film','iPhone Battery','iPhone Display','Privilege Member','Service Bill'];
@@ -1097,6 +1271,7 @@ function initTheme(){
     document.documentElement.setAttribute("data-theme",isDark?"light":"dark");
     localStorage.setItem("dashboard-theme",isDark?"light":"dark");
     if(catChart) renderCategoryChart(filterRows(allData[currentView]||[]));
+    if(trendChart) renderTrendChart(filterRows(allData[currentView]||[]));
   });
 }
 
@@ -1128,17 +1303,20 @@ function renderAll(){
     document.getElementById("kpiGrid").innerHTML="";
     document.getElementById("barsCard").innerHTML='<div class="empty-state"><p>ไม่มีข้อมูลสำหรับแท็บนี้</p></div>';
     document.getElementById("categoryTableWrap").innerHTML="";
+    document.getElementById("trendCard").innerHTML='<div class="empty-state"><p>ไม่มีข้อมูลสำหรับแท็บนี้</p></div>';
+    document.getElementById("yoyTableWrap").innerHTML="";
     document.getElementById("matrixWrap").innerHTML="";
     if(catChart) { catChart.destroy(); catChart=null; }
+    if(trendChart) { trendChart.destroy(); trendChart=null; }
     return;
   }
-  
+
   const bc=document.getElementById("barsCard");
   if(!document.getElementById("categoryChart")){
     bc.innerHTML='<canvas id="categoryChart"></canvas>';
   }
-  
-  renderKpis(f);renderCategoryChart(f);renderCategoryTable(f);renderMatrix(f);
+
+  renderKpis(f);renderCategoryChart(f);renderCategoryTable(f);renderTrendChart(f);renderYoYTable(f);renderMatrix(f);
 }
 
 // ====== LOAD DATA ======
@@ -1305,11 +1483,14 @@ function mergeSharedWeek(list){
 }
 
 // Drop Week-import rows. With a branch → only that branch's Week rows; otherwise all Week rows.
-// Master rows (base / tracking / RR periods) are always kept.
+// Master rows (base / tracking / RR + all historical months loaded for YoY) are always kept.
+function masterPeriodSet(){
+  return (MASTER_PERIODS && MASTER_PERIODS.size) ? MASTER_PERIODS : new Set([PERIOD_JUNE,PERIOD_ACTUAL,PERIOD_RR]);
+}
 function purgeWeekRows(branch){
-  const masterPeriods=[PERIOD_JUNE,PERIOD_ACTUAL,PERIOD_RR];
+  const mp=masterPeriodSet();
   const keep=r=>{
-    if(masterPeriods.indexOf(String(r["ช่วงเดือน"]))>=0) return true;      // always keep Master rows
+    if(mp.has(String(r["ช่วงเดือน"]))) return true;                        // always keep Master rows
     if(branch) return String(r["Branch (ID)"])!==String(branch);            // per-branch: keep other branches' Week rows
     return false;                                                            // clear-all: drop every Week row
   };
@@ -1347,10 +1528,10 @@ function saveWeekToServer(payload, localMsg){
 
 // Branches that currently have Week (comparison) data loaded.
 function branchesWithWeekData(){
-  const masterPeriods=[PERIOD_JUNE,PERIOD_ACTUAL,PERIOD_RR];
+  const mp=masterPeriodSet();
   const set=new Set();
   [...(allData.sales||[]),...(allData.gsx||[])].forEach(r=>{
-    if(masterPeriods.indexOf(String(r["ช่วงเดือน"]))<0){ const b=String(r["Branch (ID)"]||"").trim(); if(b) set.add(b); }
+    if(!mp.has(String(r["ช่วงเดือน"]))){ const b=String(r["Branch (ID)"]||"").trim(); if(b) set.add(b); }
   });
   return [...set].sort((a,b)=>a.localeCompare(b,undefined,{numeric:true}));
 }

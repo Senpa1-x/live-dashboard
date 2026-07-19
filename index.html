@@ -401,6 +401,31 @@ function renderKpis(rows){
     });
   }
 
+  // ===== YoY สะสมตั้งแต่ต้นปี (YTD) — เฉพาะเดือนเต็มที่จบแล้ว ไม่รวมเดือนที่กำลัง track =====
+  const yMt=String(PERIOD_ACTUAL||PERIOD_JUNE||"").match(/'(\d{2})/);
+  const yyT=yMt?yMt[1]:"";
+  const pyT=yyT?String(parseInt(yyT,10)-1).padStart(2,"0"):"";
+  if(yyT){
+    let ytdCur=0, ytdPrev=0; const monthsIn=[];
+    MONTHS_TH.forEach(function(m){
+      const cur=sumCol(rows,m+"'"+yyT,conf.totalCol);
+      if(cur===null) return;                                   // นับเฉพาะเดือนเต็มที่มีข้อมูลปีนี้
+      monthsIn.push(m);
+      ytdCur+=cur;
+      ytdPrev+=(sumCol(rows,m+"'"+pyT,conf.totalCol)||0);
+    });
+    if(monthsIn.length){
+      const rangeLbl=monthsIn.length>1?(monthsIn[0]+"–"+monthsIn[monthsIn.length-1]):monthsIn[0];
+      const yoyT=calcPct(ytdCur,ytdPrev||null), cT=pctClass(yoyT);
+      cards.push({
+        label:"% YoY สะสมปีนี้ ("+rangeLbl+" 20"+yyT+" vs 20"+pyT+")",
+        value:yoyT!==null?fmtPct(yoyT):"-",
+        sub:fmt(ytdPrev)+" → "+fmt(ytdCur)+" "+conf.unit,
+        color:cT==="pos"?"var(--green)":cT==="neg"?"var(--red)":"var(--gray)"
+      });
+    }
+  }
+
   document.getElementById("kpiGrid").innerHTML=cards.map(c=>`<div class="kpi-card"><div class="kpi-label">${c.label}</div><div class="kpi-value" style="color:${c.color}">${c.value}</div><div class="kpi-sub">${c.sub}</div></div>`).join("");
 }
 

@@ -190,6 +190,7 @@ tr.row-worst td:first-child{border-left:3px solid var(--red)}
   <div class="view-toggle" id="viewToggle">
     <button class="toggle-btn active" data-view="sales">💰 ยอดขาย (Sales)</button>
     <button class="toggle-btn" data-view="gsx">🔧 งานซ่อม (GSX)</button>
+    <button class="toggle-btn" data-view="summary">📋 สรุป (Summary)</button>
   </div>
 
   <!-- FILTER -->
@@ -217,6 +218,8 @@ tr.row-worst td:first-child{border-left:3px solid var(--red)}
       <button class="btn btn-danger" id="btnClearWeek">🗑️ ล้างข้อมูล Week</button>
     </div>
   </div>
+
+  <div id="detailView">
 
   <!-- KPI -->
   <div class="kpi-grid" id="kpiGrid"></div>
@@ -247,7 +250,7 @@ tr.row-worst td:first-child{border-left:3px solid var(--red)}
 
   <!-- YOY TABLE -->
   <div class="section-header">
-    <h2>ตาราง YoY รายหมวด</h2>
+    <h2>ตาราง YoY รายหมวด (RR คาดการณ์ เทียบปีก่อน)</h2>
     <span class="badge" id="yoyBadge">YoY</span>
   </div>
   <div class="table-card"><div class="table-card-inner"><div class="tbl-wrap" id="yoyTableWrap"></div></div></div>
@@ -258,6 +261,27 @@ tr.row-worst td:first-child{border-left:3px solid var(--red)}
     <span class="badge" id="matrixBadge">RR</span>
   </div>
   <div class="matrix-card"><div class="matrix-tbl-wrap" id="matrixWrap"></div></div>
+
+  </div><!-- /detailView -->
+
+  <!-- SUMMARY VIEW — เฉพาะตารางเปรียบเทียบรายหมวด (ยอดขาย + งานซ่อม) ไม่มีกราฟ -->
+  <div id="summaryView" style="display:none">
+    <div style="font-size:.85rem;color:var(--text-secondary);margin-bottom:16px;padding:12px 16px;background:var(--card);border:1px solid var(--border);border-radius:var(--radius-sm)">
+      📊 <b>เทียบเดือน:</b> <span id="sumMonthLbl">—</span> &nbsp;·&nbsp; <b>เทียบปี:</b> <span id="sumYearLbl">—</span>
+    </div>
+    <div class="section-header">
+      <h2>สรุปเปรียบเทียบรายหมวด — 💰 ยอดขาย</h2>
+      <span class="badge">บาท</span>
+    </div>
+    <div class="kpi-grid" id="summaryKpiSales"></div>
+    <div class="table-card"><div class="table-card-inner"><div class="tbl-wrap" id="summarySalesWrap"></div></div></div>
+    <div class="section-header">
+      <h2>สรุปเปรียบเทียบรายหมวด — 🔧 งานซ่อม</h2>
+      <span class="badge">รายการ</span>
+    </div>
+    <div class="kpi-grid" id="summaryKpiGsx"></div>
+    <div class="table-card"><div class="table-card-inner"><div class="tbl-wrap" id="summaryGsxWrap"></div></div></div>
+  </div>
 
 </div>
 
@@ -291,7 +315,7 @@ let currentView="sales";
 
 // ====== FORMAT HELPERS ======
 function fmt(v){if(!isValidNum(v))return"-";return Number(v).toLocaleString("th-TH",{maximumFractionDigits:0})}
-function fmtPct(v){if(v===null||v===undefined||isNaN(v))return"-";return(v>0?"+":"")+v.toFixed(2)+"%"}
+function fmtPct(v){if(v===null||v===undefined||isNaN(v))return"-";const n=Math.round(v);return(n>0?"+":"")+(n===0?0:n)+"%"}
 function isValidNum(v){if(v===null||v===undefined)return false;if(typeof v==="string"){const t=v.trim();if(t===""||t==="-"||t.startsWith("#"))return false;return!isNaN(parseFloat(t.replace(/,/g,"")))}if(typeof v==="number")return!isNaN(v)&&isFinite(v);return false}
 function toNum(v){if(!isValidNum(v))return null;if(typeof v==="number")return v;return parseFloat(String(v).replace(/,/g,""))}
 function pctClass(v){if(v===null||v===undefined||isNaN(v))return"neu";return v>0?"pos":v<0?"neg":"neu"}
@@ -309,9 +333,16 @@ function getCompRows(){return branchSelected() ? filterRows(allData[currentView]
 function sumCol(rows,period,colKey){let t=0,h=false;rows.forEach(r=>{if(String(r[COL_PERIOD]||"").trim()!==period)return;const v=toNum(r[colKey]);if(v!==null){t+=v;h=true}});return h?t:null}
 function calcPct(newV,baseV){if(baseV===null||baseV===0)return null;const n=(newV===null?0:newV);return((n-baseV)/baseV)*100}
 
+// Rows that back the AM/Branch dropdowns. In Summary view use both sales+gsx so every
+// AM/branch appears; otherwise just the active view.
+function baseRowsForFilters(){
+  if(currentView==="summary") return [...(allData.sales||[]), ...(allData.gsx||[])];
+  return allData[currentView] || [];
+}
+
 // ====== POPULATE FILTERS ======
 function populateFilters(){
-  const rows = allData[currentView] || [];
+  const rows = baseRowsForFilters();
   const selAM=document.getElementById("selAM");
   const prevAM=selAM.value;
   const ams=new Set();
@@ -323,7 +354,7 @@ function populateFilters(){
 }
 
 function rebuildBranches(){
-  const rows = allData[currentView] || [];
+  const rows = baseRowsForFilters();
   const am = document.getElementById("selAM").value;
   const sel=document.getElementById("selBranch");
   const prev=sel.value;
@@ -656,12 +687,12 @@ function renderYoYTable(rows){
   const conf=CONFIG[currentView];
   const wrap=document.getElementById("yoyTableWrap");
   const badge=document.getElementById("yoyBadge");
-  if(badge) badge.textContent=(PERIOD_BASE_LY&&PERIOD_JUNE)?(PERIOD_BASE_LY+" vs "+PERIOD_JUNE):"YoY";
-  if(!PERIOD_BASE_LY){ wrap.innerHTML=""; return; }
+  if(badge) badge.textContent=(PERIOD_RR_LY&&PERIOD_RR)?(PERIOD_RR_LY+" vs "+PERIOD_RR):"YoY";
+  if(!PERIOD_RR_LY || !PERIOD_RR){ wrap.innerHTML=""; return; }
 
   const rowData=conf.keys.map(function(cat){
-    const ly=sumCol(rows,PERIOD_BASE_LY,cat);
-    const cy=sumCol(rows,PERIOD_JUNE,cat);
+    const ly=sumCol(rows,PERIOD_RR_LY,cat);   // ปีก่อน (เดือน RR ปีที่แล้ว จริง)
+    const cy=sumCol(rows,PERIOD_RR,cat);      // ปีนี้ (RR คาดการณ์)
     const diff=(ly!==null||cy!==null)?(cy||0)-(ly||0):null;
     return {cat:cat, ly:ly, cy:cy, diff:diff, pct:calcPct(cy,ly)};
   });
@@ -674,8 +705,8 @@ function renderYoYTable(rows){
 
   wrap.innerHTML=`<table><thead><tr>
     <th>Category</th>
-    <th>${PERIOD_BASE_LY} (ปีก่อน)</th>
-    <th>${PERIOD_JUNE} (ปีนี้)</th>
+    <th>${PERIOD_RR_LY} (ปีก่อน)</th>
+    <th>${PERIOD_RR} (คาดการณ์)</th>
     <th>ส่วนต่าง</th>
     <th>% YoY</th>
   </tr></thead>
@@ -773,6 +804,111 @@ function renderCategoryTable(rows){
   </tr></tfoot></table>`;
 }
 
+
+// ====== RENDER SUMMARY (แท็บ "สรุป": ตารางเปรียบเทียบรายหมวด ยอดขาย+งานซ่อม ไม่มีกราฟ) ======
+// เทียบเดือน: มิ.ย.'26 (เต็ม) → RR ก.ค.'26   |   เทียบปี: ก.ค.'25 (ปีก่อน) → RR ก.ค.'26 (ปีนี้)
+function renderSummary(){
+  const ml=document.getElementById("sumMonthLbl");
+  const yl=document.getElementById("sumYearLbl");
+  if(ml) ml.textContent=(PERIOD_JUNE||"เดือนฐาน")+" (เต็ม) → "+(PERIOD_RR||"RR");
+  if(yl) yl.textContent=(PERIOD_RR_LY||"ปีก่อน")+" → "+(PERIOD_RR||"RR")+" (ปีนี้)";
+
+  const empty=(allData.sales||[]).length===0 && (allData.gsx||[]).length===0;
+  if(empty){
+    const e='<div class="empty-state"><div class="empty-icon">📋</div><p>ยังไม่มีข้อมูล — กรุณานำเข้าไฟล์ Master ก่อน</p></div>';
+    document.getElementById("summarySalesWrap").innerHTML=e;
+    document.getElementById("summaryGsxWrap").innerHTML="";
+    document.getElementById("summaryKpiSales").innerHTML="";
+    document.getElementById("summaryKpiGsx").innerHTML="";
+    return;
+  }
+  renderSummaryKpis("sales", document.getElementById("summaryKpiSales"));
+  renderSummaryKpis("gsx",   document.getElementById("summaryKpiGsx"));
+  renderSummaryTable("sales", document.getElementById("summarySalesWrap"));
+  renderSummaryTable("gsx",   document.getElementById("summaryGsxWrap"));
+}
+
+// การ์ด KPI สรุป 5 ใบ/มุมมอง: ฐาน(เต็ม) · RR(คาดการณ์) · ปีก่อน · %เติบโตเดือน(RR vs ฐาน) · %เติบโตปี(RR vs ปีก่อน)
+function renderSummaryKpis(view, grid){
+  if(!grid) return;
+  const conf=CONFIG[view];
+  const rows=filterRows(allData[view]||[]);                       // เคารพตัวกรอง AM/Branch
+  const base=sumCol(rows,PERIOD_JUNE,conf.totalCol);              // เดือนฐาน (เต็ม)
+  const rr  =sumCol(rows,PERIOD_RR,conf.totalCol);               // RR คาดการณ์ (ปีนี้)
+  const ly  =PERIOD_RR_LY?sumCol(rows,PERIOD_RR_LY,conf.totalCol):null;  // เดือนเดียวกันปีก่อน (จริง)
+  const mPct=calcPct(rr,base), yPct=calcPct(rr,ly);
+  const col=function(c){return c==="pos"?"var(--green)":c==="neg"?"var(--red)":"var(--gray)";};
+  const cards=[
+    {label:(PERIOD_JUNE||"เดือนฐาน")+" (เต็ม)",              value:fmt(base), sub:conf.unit, color:"var(--text-primary)"},
+    {label:(PERIOD_RR||"RR")+" (คาดการณ์)",                  value:fmt(rr),   sub:conf.unit, color:"var(--text-primary)"},
+    {label:(PERIOD_RR_LY||"ปีก่อน")+" (ปีก่อน)",              value:fmt(ly),   sub:conf.unit, color:"var(--text-primary)"},
+    {label:"% เติบโตเดือน (RR vs "+(PERIOD_JUNE||"ฐาน")+")",   value:mPct!==null?fmtPct(mPct):"-", sub:fmt(base)+" → "+fmt(rr)+" "+conf.unit, color:col(pctClass(mPct))},
+    {label:"% เติบโตปี (RR vs "+(PERIOD_RR_LY||"ปีก่อน")+")",  value:yPct!==null?fmtPct(yPct):"-", sub:fmt(ly)+" → "+fmt(rr)+" "+conf.unit, color:col(pctClass(yPct))}
+  ];
+  grid.innerHTML=cards.map(c=>`<div class="kpi-card"><div class="kpi-label">${c.label}</div><div class="kpi-value" style="color:${c.color}">${c.value}</div><div class="kpi-sub">${c.sub}</div></div>`).join("");
+}
+
+function renderSummaryTable(view, wrap){
+  if(!wrap) return;
+  const conf=CONFIG[view];
+  const rows=filterRows(allData[view]||[]);       // เคารพตัวกรอง AM/Branch เดียวกับทั้งหน้า
+
+  const rowData=conf.keys.map(function(cat){
+    const june=sumCol(rows,PERIOD_JUNE,cat);                       // เดือนฐาน (เต็ม)
+    const rr  =sumCol(rows,PERIOD_RR,cat);                         // RR เดือนคาดการณ์ (ปีนี้)
+    const ly  =PERIOD_RR_LY?sumCol(rows,PERIOD_RR_LY,cat):null;    // เดือนเดียวกันปีก่อน (จริง)
+    const mDiff=(rr!==null||june!==null)?(rr||0)-(june||0):null;   // ส่วนต่างเดือน = RR − ฐาน
+    const yDiff=(rr!==null||ly!==null)?(rr||0)-(ly||0):null;       // ส่วนต่างปี   = RR − ปีก่อน
+    return {cat:cat, june:june, rr:rr, ly:ly, mDiff:mDiff, mPct:calcPct(rr,june), yDiff:yDiff, yPct:calcPct(rr,ly)};
+  });
+
+  function sN(k){const vs=rowData.map(d=>d[k]).filter(v=>v!==null);return vs.length?vs.reduce((a,b)=>a+b,0):null;}
+  const tJune=sN("june"), tRR=sN("rr"), tLY=sN("ly");
+  const tMDiff=(tRR!==null||tJune!==null)?(tRR||0)-(tJune||0):null;
+  const tYDiff=(tRR!==null||tLY!==null)?(tRR||0)-(tLY||0):null;
+  const tMPct=calcPct(tRR,tJune), tYPct=calcPct(tRR,tLY);
+
+  function pH(p){const c=pctClass(p);return p===null?'<span class="chip-neu">-</span>':`<span class="chip-${c}">${fmtPct(p)}</span>`;}
+  function dH(d){const c=pctClass(d);return d===null?'<span class="chip-neu">-</span>':`<span class="chip-${c}">${(d>=0?"+":"")+fmt(d)}</span>`;}
+
+  const hJune=(PERIOD_JUNE||"เดือนฐาน")+" (เต็ม)";
+  const hRR  =PERIOD_RR||"RR";
+  const hLY  =(PERIOD_RR_LY||"ปีก่อน")+" (ปีก่อน)";
+
+  wrap.innerHTML=`<table><thead><tr>
+    <th>หมวด</th>
+    <th>${hJune}</th>
+    <th>${hRR}</th>
+    <th>ส่วนต่างเดือน</th>
+    <th>เติบโตเดือน</th>
+    <th>${hLY}</th>
+    <th>${hRR} (ปีนี้)</th>
+    <th>ส่วนต่างปี</th>
+    <th>เติบโตปี</th>
+  </tr></thead>
+  <tbody>${rowData.map(d=>`<tr>
+    <td>${d.cat}</td>
+    <td>${fmt(d.june)}</td>
+    <td>${fmt(d.rr)}</td>
+    <td>${dH(d.mDiff)}</td>
+    <td>${pH(d.mPct)}</td>
+    <td>${fmt(d.ly)}</td>
+    <td>${fmt(d.rr)}</td>
+    <td>${dH(d.yDiff)}</td>
+    <td>${pH(d.yPct)}</td>
+  </tr>`).join("")}</tbody>
+  <tfoot><tr>
+    <td>รวมทั้งหมด (${conf.unit})</td>
+    <td>${fmt(tJune)}</td>
+    <td>${fmt(tRR)}</td>
+    <td>${dH(tMDiff)}</td>
+    <td>${pH(tMPct)}</td>
+    <td>${fmt(tLY)}</td>
+    <td>${fmt(tRR)}</td>
+    <td>${dH(tYDiff)}</td>
+    <td>${pH(tYPct)}</td>
+  </tr></tfoot></table>`;
+}
 
 // ====== RENDER MATRIX ======
 function renderMatrix(rows){
@@ -1295,8 +1431,8 @@ function initTheme(){
     const isDark=document.documentElement.getAttribute("data-theme")==="dark";
     document.documentElement.setAttribute("data-theme",isDark?"light":"dark");
     localStorage.setItem("dashboard-theme",isDark?"light":"dark");
-    if(catChart) renderCategoryChart(filterRows(allData[currentView]||[]));
-    if(trendChart) renderTrendChart(filterRows(allData[currentView]||[]));
+    if(currentView!=="summary" && catChart) renderCategoryChart(filterRows(allData[currentView]||[]));
+    if(currentView!=="summary" && trendChart) renderTrendChart(filterRows(allData[currentView]||[]));
   });
 }
 
@@ -1323,6 +1459,17 @@ function initPullToRefresh(){
 
 // ====== MASTER RENDER ======
 function renderAll(){
+  const detail=document.getElementById("detailView");
+  const summary=document.getElementById("summaryView");
+  if(currentView==="summary"){
+    if(detail) detail.style.display="none";
+    if(summary) summary.style.display="";
+    renderSummary();
+    return;
+  }
+  if(detail) detail.style.display="";
+  if(summary) summary.style.display="none";
+
   const f=filterRows(allData[currentView]||[]);
   if(f.length===0){
     document.getElementById("kpiGrid").innerHTML="";

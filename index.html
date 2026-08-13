@@ -775,7 +775,7 @@ function renderCategoryTable(rows){
     <th>${labelActual}</th>
     <th>ส่วนต่างสัปดาห์</th>
     <th>% โตสัปดาห์</th>
-    <th>ส่วนต่าง (RR vs มิ.ย.)</th>
+    <th>ส่วนต่าง (RR vs ${monthJune})</th>
     <th>% เปลี่ยนแปลง</th>
   </tr></thead>
   <tbody>${rowData.map(d=>{
@@ -914,7 +914,7 @@ function renderSummaryTable(view, wrap){
 function renderMatrix(rows){
   const conf=CONFIG[currentView];
   const wrap=document.getElementById("matrixWrap");
-  const monthJune = PERIOD_JUNE ? PERIOD_JUNE.split("'")[0] : "มิ.ย.";
+  const monthJune = PERIOD_JUNE ? PERIOD_JUNE.split("'")[0] : "เดือนฐาน";
   const badge=document.getElementById("matrixBadge");
   if(badge) badge.textContent = PERIOD_RR || "RR";
   const types=new Set();rows.forEach(r=>{if(String(r[COL_PERIOD]||"").trim()===PERIOD_RR){const t=String(r[COL_TYPE]||"").trim();if(t)types.add(t)}});

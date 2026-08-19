@@ -1552,10 +1552,34 @@ function isOnline(){ return !!BACKEND_URL || gasAvailable(); }
 // Unified backend call. Reads: api("getMaster") / api("getWeekData").
 // Writes: api("saveWeekData",{pin,payload}) / api("clearWeekData",{pin,branch}).
 // Always resolves to a normalized {ok, master?, list?, error?, removed?} object.
+// GET reads are idempotent, and Google Drive/Apps Script occasionally answers a big
+// getMaster with an HTML error page instead of JSON ("ไม่สามารถเปิดไฟล์ได้ในเวลานี้").
+// Retry a few times with a growing delay before surfacing the failure.
+function apiGetWithRetry(action, tries){
+  tries = tries || 3;
+  function attempt(n){
+    return fetch(BACKEND_URL+"?action="+encodeURIComponent(action)+"&t="+Date.now())
+      .then(function(r){ return r.text(); })
+      .then(function(txt){
+        const s=String(txt||"").trim();
+        if(s.charAt(0)!=="{" && s.charAt(0)!=="[")
+          throw new Error("ส่วนกลางตอบกลับไม่ใช่ข้อมูล (Google Drive ขัดข้องชั่วคราว)");
+        return JSON.parse(s);
+      })
+      .catch(function(err){
+        if(n>=tries) throw err;
+        const note=document.querySelector(".loading-text");
+        if(note) note.textContent="ส่วนกลางไม่ตอบสนอง กำลังลองใหม่ ("+n+"/"+(tries-1)+")...";
+        return new Promise(function(res){ setTimeout(res, 1500*n); }).then(function(){ return attempt(n+1); });
+      });
+  }
+  return attempt(1);
+}
+
 function api(action, data){
   if(BACKEND_URL){
     if(data===undefined){
-      return fetch(BACKEND_URL+"?action="+encodeURIComponent(action)).then(r=>r.json());
+      return apiGetWithRetry(action);
     }
     return fetch(BACKEND_URL,{
       method:"POST",
@@ -1598,7 +1622,7 @@ function loadData(){
         document.getElementById("loadingOverlay").classList.add("hidden");
         document.getElementById("btnRefresh").classList.remove("loading");
         setStatus(false,"เชื่อมต่อส่วนกลางล้มเหลว");
-        alert("โหลดข้อมูลจากส่วนกลางไม่สำเร็จ: "+(err.message||err));
+        alert("โหลดข้อมูลจากส่วนกลางไม่สำเร็จ (ลองใหม่แล้ว 3 ครั้ง)\n\n"+(err.message||err)+"\n\nวิธีแก้: กดปุ่ม ⟳ Refresh อีกครั้ง — ถ้ายังไม่ได้ ให้รอสักครู่แล้วลองใหม่ (ไฟล์ Master ขนาดใหญ่ Google Drive อาจขัดข้องชั่วคราว)");
       });
   } else {
     // Local/offline mode: blank state, user imports the Master file manually.

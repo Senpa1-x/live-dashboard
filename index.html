@@ -152,6 +152,24 @@ tr.row-worst td:first-child{border-left:3px solid var(--red)}
 #pullIndicator{position:fixed;top:0;left:50%;transform:translateX(-50%);z-index:999;opacity:0;transition:opacity 0.2s,transform 0.2s;pointer-events:none;padding:12px 20px;background:var(--accent);color:#fff;border-radius:0 0 var(--radius-sm) var(--radius-sm);font-size:0.82rem;font-weight:600;box-shadow:var(--shadow)}
 #pullIndicator.visible{opacity:1;transform:translateX(-50%) translateY(0)}
 
+/* ====== LOGIN ====== */
+#loginScreen{position:fixed;inset:0;background:var(--bg);display:flex;align-items:center;justify-content:center;padding:20px;z-index:2000}
+#loginScreen.hidden{display:none}
+.login-card{background:var(--card-solid);border:1px solid var(--border);border-radius:var(--radius);box-shadow:var(--shadow-md);padding:32px 30px;width:100%;max-width:380px}
+.login-card h1{font-size:1.4rem;font-weight:700;letter-spacing:-0.4px;margin-bottom:6px}
+.login-card .login-sub{font-size:0.85rem;color:var(--text-secondary);margin-bottom:22px}
+.login-field{display:flex;flex-direction:column;gap:6px;margin-bottom:14px}
+.login-field label{font-size:0.73rem;font-weight:600;color:var(--text-secondary);text-transform:uppercase;letter-spacing:0.5px}
+.login-field input{padding:11px 13px;border:1.5px solid var(--border);border-radius:var(--radius-sm);background:var(--card-solid);font-family:var(--font);font-size:0.95rem;color:var(--text-primary);transition:border-color 0.15s}
+.login-field input:focus{outline:none;border-color:var(--accent)}
+#loginBtn{width:100%;justify-content:center;margin-top:6px;padding:12px}
+#loginError{display:none;margin-top:14px;padding:10px 12px;border-radius:var(--radius-sm);background:var(--red-bg);color:var(--red);font-size:0.83rem;font-weight:600}
+#loginError.show{display:block}
+.login-hint{margin-top:18px;font-size:0.78rem;color:var(--text-tertiary);line-height:1.6}
+.user-chip{display:inline-flex;align-items:center;gap:8px;padding:5px 10px 5px 12px;border-radius:20px;background:var(--gray-bg);font-size:0.78rem;font-weight:600;color:var(--text-secondary)}
+.user-chip button{border:none;background:transparent;color:var(--accent);font-family:var(--font);font-size:0.78rem;font-weight:600;cursor:pointer;padding:2px 4px}
+.user-chip button:hover{text-decoration:underline}
+
 /* ====== RESPONSIVE ====== */
 @media(max-width:700px){
   .page-wrap{padding:16px 12px 40px}
@@ -166,6 +184,25 @@ tr.row-worst td:first-child{border-left:3px solid var(--red)}
 </head>
 <body>
 
+<!-- LOGIN -->
+<div id="loginScreen" class="hidden">
+  <form class="login-card" id="loginForm" autocomplete="off">
+    <h1>📊 Live Dashboard</h1>
+    <div class="login-sub">กรุณาเข้าสู่ระบบเพื่อดูข้อมูล</div>
+    <div class="login-field">
+      <label for="loginUser">ชื่อผู้ใช้</label>
+      <input type="text" id="loginUser" placeholder="bm606" autocapitalize="none" autocorrect="off" spellcheck="false" required/>
+    </div>
+    <div class="login-field">
+      <label for="loginPass">รหัสผ่าน</label>
+      <input type="password" id="loginPass" placeholder="รหัสผ่าน" required/>
+    </div>
+    <button type="submit" class="btn btn-primary" id="loginBtn">เข้าสู่ระบบ</button>
+    <div id="loginError"></div>
+    <div class="login-hint">ชื่อผู้ใช้คือ <b>bm</b> ตามด้วยรหัสสาขา เช่น <b>bm606</b><br>หากเข้าไม่ได้ กรุณาติดต่อผู้ดูแลระบบ</div>
+  </form>
+</div>
+
 <div id="loadingOverlay"><div class="spinner"></div><div class="loading-text">กำลังโหลดข้อมูล...</div></div>
 <div id="pullIndicator">↻ ปล่อยเพื่อรีเฟรช</div>
 
@@ -179,6 +216,7 @@ tr.row-worst td:first-child{border-left:3px solid var(--red)}
     </div>
     <div class="header-right">
       <div style="display:flex;align-items:center;gap:12px">
+        <span class="user-chip" id="userChip" style="display:none">👤 <span id="userName"></span><button type="button" id="btnLogout">ออกจากระบบ</button></span>
         <div id="statusBadge" class="status-badge"><div class="status-dot"></div><span id="statusText">กำลังโหลด…</span></div>
         <div class="theme-row"><span>☀️</span><button class="theme-toggle" id="themeToggle" aria-label="สลับ Dark Mode"></button><span>🌙</span></div>
       </div>
@@ -1549,16 +1587,39 @@ const BACKEND_URL = "https://script.google.com/macros/s/AKfycbxcwlpRXbtPdaIWUA9x
 function gasAvailable(){ return (typeof google!=="undefined" && google.script && google.script.run); }
 function isOnline(){ return !!BACKEND_URL || gasAvailable(); }
 
-// Unified backend call. Reads: api("getMaster") / api("getWeekData").
-// Writes: api("saveWeekData",{pin,payload}) / api("clearWeekData",{pin,branch}).
-// Always resolves to a normalized {ok, master?, list?, error?, removed?} object.
-// GET reads are idempotent, and Google Drive/Apps Script occasionally answers a big
-// getMaster with an HTML error page instead of JSON ("ไม่สามารถเปิดไฟล์ได้ในเวลานี้").
-// Retry a few times with a growing delay before surfacing the failure.
-function apiGetWithRetry(action, tries){
+// ====== LOGIN (credentials checked by the backend, never here) ======
+// Username = "bm" + branch code, password identical (e.g. bm606 / bm606).
+// The browser only stores what the user typed so it can re-send it on each call —
+// the decision to hand over data is made by the server.
+const AUTH_KEY="dashboard-auth-v1";
+let AUTH=null;
+
+function loadAuth(){
+  try{ const r=localStorage.getItem(AUTH_KEY); AUTH=r?JSON.parse(r):null; }catch(e){ AUTH=null; }
+  return AUTH;
+}
+function saveAuth(user,pass){
+  AUTH={user:user,pass:pass};
+  try{ localStorage.setItem(AUTH_KEY, JSON.stringify(AUTH)); }catch(e){}
+}
+function clearAuth(){
+  AUTH=null;
+  try{ localStorage.removeItem(AUTH_KEY); }catch(e){}
+}
+
+// Every backend call carries the credentials; reads are POSTed so nothing
+// sensitive ever lands in a URL, browser history or server log.
+// Google Drive/Apps Script occasionally answers a big getMaster with an HTML error
+// page instead of JSON, so retry a few times with a growing delay.
+function apiPostWithRetry(action, data, tries){
   tries = tries || 3;
+  const body = Object.assign({action:action}, data||{}, AUTH?{user:AUTH.user, pass:AUTH.pass}:{});
   function attempt(n){
-    return fetch(BACKEND_URL+"?action="+encodeURIComponent(action)+"&t="+Date.now())
+    return fetch(BACKEND_URL,{
+      method:"POST",
+      headers:{"Content-Type":"text/plain;charset=utf-8"}, // simple request → no CORS preflight
+      body:JSON.stringify(body)
+    })
       .then(function(r){ return r.text(); })
       .then(function(txt){
         const s=String(txt||"").trim();
@@ -1578,30 +1639,74 @@ function apiGetWithRetry(action, tries){
 
 function api(action, data){
   if(BACKEND_URL){
-    if(data===undefined){
-      return apiGetWithRetry(action);
-    }
-    return fetch(BACKEND_URL,{
-      method:"POST",
-      headers:{"Content-Type":"text/plain;charset=utf-8"}, // simple request → no CORS preflight
-      body:JSON.stringify(Object.assign({action:action}, data))
-    }).then(r=>r.json());
+    return apiPostWithRetry(action, data);
   }
   if(gasAvailable()){
+    // Same single gate as the POST path — apiCall() validates the login server-side.
+    const payload=JSON.stringify(Object.assign({action:action}, data||{}, AUTH?{user:AUTH.user, pass:AUTH.pass}:{}));
     return new Promise(function(res,rej){
-      const g=google.script.run.withSuccessHandler(res).withFailureHandler(rej);
-      if(action==="getMaster") g.getMaster();
-      else if(action==="getWeekData") g.getWeekData();
-      else if(action==="saveWeekData") g.saveWeekData(data.pin, data.payload);
-      else if(action==="clearWeekData") g.clearWeekData(data.pin, data.branch||"");
-      else rej(new Error("unknown action"));
-    }).then(function(v){
-      if(action==="getMaster") return {ok:true, master:v};
-      if(action==="getWeekData") return {ok:true, list:v};
-      return {ok:true};
-    });
+      google.script.run.withSuccessHandler(res).withFailureHandler(rej).apiCall(payload);
+    }).then(function(txt){ return JSON.parse(txt); });
   }
   return Promise.reject(new Error("offline"));
+}
+
+// ====== LOGIN SCREEN ======
+function showLogin(msg){
+  const s=document.getElementById("loginScreen");
+  const e=document.getElementById("loginError");
+  if(msg){ e.textContent=msg; e.classList.add("show"); } else { e.classList.remove("show"); }
+  s.classList.remove("hidden");
+  document.getElementById("loadingOverlay").classList.add("hidden");
+  document.getElementById("userChip").style.display="none";
+  const u=document.getElementById("loginUser"); if(u) setTimeout(function(){u.focus();},50);
+}
+function hideLogin(){
+  document.getElementById("loginScreen").classList.add("hidden");
+  const chip=document.getElementById("userChip");
+  if(AUTH){ document.getElementById("userName").textContent=AUTH.user; chip.style.display="inline-flex"; }
+}
+// A rejected login anywhere in the app drops the stored credentials and asks again.
+function handleAuthFailure(res){
+  clearAuth();
+  showLogin((res&&res.error)||"กรุณาเข้าสู่ระบบใหม่");
+  return true;
+}
+function initAuth(){
+  document.getElementById("loginForm").addEventListener("submit",function(ev){
+    ev.preventDefault();
+    const user=document.getElementById("loginUser").value.trim().toLowerCase();
+    const pass=document.getElementById("loginPass").value.trim();
+    const btn=document.getElementById("loginBtn");
+    if(!user||!pass) return;
+    btn.classList.add("loading"); btn.textContent="กำลังตรวจสอบ...";
+    saveAuth(user,pass);                       // api() reads AUTH when building the request
+    api("login")
+      .then(function(res){
+        btn.classList.remove("loading"); btn.textContent="เข้าสู่ระบบ";
+        if(res && res.ok){
+          document.getElementById("loginPass").value="";
+          hideLogin(); loadData(); resetAutoRefresh();
+        } else {
+          clearAuth();
+          const e=document.getElementById("loginError");
+          e.textContent=(res&&res.error)||"เข้าสู่ระบบไม่สำเร็จ"; e.classList.add("show");
+        }
+      })
+      .catch(function(err){
+        clearAuth();
+        btn.classList.remove("loading"); btn.textContent="เข้าสู่ระบบ";
+        const e=document.getElementById("loginError");
+        e.textContent="เชื่อมต่อส่วนกลางไม่ได้: "+(err.message||err); e.classList.add("show");
+      });
+  });
+  document.getElementById("btnLogout").addEventListener("click",function(){
+    if(!confirm("ออกจากระบบ?")) return;
+    clearAuth();
+    allData={sales:[],gsx:[]};
+    if(autoTimer) clearInterval(autoTimer);
+    showLogin();
+  });
 }
 
 // Decode a base64 string (the Master .xlsx bytes) into a Uint8Array for SheetJS.
@@ -1617,7 +1722,11 @@ function loadData(){
   if(isOnline()){
     document.querySelector(".loading-text").textContent="กำลังโหลดข้อมูลจากส่วนกลาง...";
     api("getMaster")
-      .then(function(res){ if(res && res.ok===false) throw new Error(res.error||"getMaster failed"); onMasterBytes(res.master); })
+      .then(function(res){
+        if(res && res.auth===false){ handleAuthFailure(res); return; }   // session no longer valid
+        if(res && res.ok===false) throw new Error(res.error||"getMaster failed");
+        onMasterBytes(res.master);
+      })
       .catch(function(err){
         document.getElementById("loadingOverlay").classList.add("hidden");
         document.getElementById("btnRefresh").classList.remove("loading");
@@ -1809,7 +1918,13 @@ document.getElementById("btnClearWeek").addEventListener("click",handleClearWeek
 function resetAutoRefresh(){if(autoTimer)clearInterval(autoTimer);if(isOnline()){autoTimer=setInterval(refreshWeekOnly,120000);}}
 
 // ====== INIT ======
-window.addEventListener("DOMContentLoaded",()=>{initTheme();initViewToggle();initPullToRefresh();loadData();resetAutoRefresh()});
+window.addEventListener("DOMContentLoaded",()=>{
+  initTheme();initViewToggle();initPullToRefresh();initAuth();
+  loadAuth();
+  // Online needs a login first; offline (local file) has no backend to protect.
+  if(isOnline() && !AUTH){ showLogin(); return; }
+  hideLogin(); loadData(); resetAutoRefresh();
+});
 </script>
 </body>
 </html>

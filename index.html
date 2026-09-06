@@ -191,7 +191,7 @@ tr.row-worst td:first-child{border-left:3px solid var(--red)}
     <div class="login-sub">กรุณาเข้าสู่ระบบเพื่อดูข้อมูล</div>
     <div class="login-field">
       <label for="loginUser">ชื่อผู้ใช้</label>
-      <input type="text" id="loginUser" placeholder="bm606" autocapitalize="none" autocorrect="off" spellcheck="false" required/>
+      <input type="text" id="loginUser" placeholder="bm12345" autocapitalize="none" autocorrect="off" spellcheck="false" required/>
     </div>
     <div class="login-field">
       <label for="loginPass">รหัสผ่าน</label>
@@ -199,7 +199,7 @@ tr.row-worst td:first-child{border-left:3px solid var(--red)}
     </div>
     <button type="submit" class="btn btn-primary" id="loginBtn">เข้าสู่ระบบ</button>
     <div id="loginError"></div>
-    <div class="login-hint">ชื่อผู้ใช้คือ <b>bm</b> ตามด้วยรหัสสาขา เช่น <b>bm606</b><br>หากเข้าไม่ได้ กรุณาติดต่อผู้ดูแลระบบ</div>
+    <div class="login-hint">ชื่อผู้ใช้คือ <b>bm</b> ตามด้วยรหัสสาขา เช่น <b>bm12345</b><br>หากเข้าไม่ได้ กรุณาติดต่อผู้ดูแลระบบ</div>
   </form>
 </div>
 
@@ -1588,7 +1588,7 @@ function gasAvailable(){ return (typeof google!=="undefined" && google.script &&
 function isOnline(){ return !!BACKEND_URL || gasAvailable(); }
 
 // ====== LOGIN (credentials checked by the backend, never here) ======
-// Username = "bm" + branch code, password identical (e.g. bm606 / bm606).
+// Username = "bm" + branch code, password identical (e.g. bm12345 / bm12345).
 // The browser only stores what the user typed so it can re-send it on each call —
 // the decision to hand over data is made by the server.
 const AUTH_KEY="dashboard-auth-v1";
